@@ -1,6 +1,6 @@
 // ============================================================================
 // ENCLAVE ARCADE — LIVE MULTIPLAYER CLIENT (app.js)
-// Expanded Village of Salem Roles, Last Wills, & Social Deduction AI Controls
+// Includes Live Graveyard Inspector, Private Mafia Night Chat & Ghost Chat
 // ============================================================================
 
 const RENDER_SERVER_URL = "https://enclave-arcade-live.onrender.com";
@@ -255,6 +255,12 @@ function applyModeUI(newMode, settings) {
   document.getElementById("salemPanel").classList.toggle("hidden", newMode !== "salem");
   document.getElementById("btnSubmitDrawing").classList.toggle("hidden", newMode !== "gartic");
 
+  // Reset chat input state when leaving Salem
+  const chatInput = document.getElementById("chatInput");
+  chatInput.disabled = false;
+  chatInput.placeholder = "Type a guess, claim, or suspicion...";
+  document.getElementById("chatHeaderTitle").textContent = "Live Guesses & Town Chat";
+
   clearCanvasBoard(false);
 
   if (newMode === "snake") {
@@ -267,7 +273,7 @@ function applyModeUI(newMode, settings) {
     document.getElementById("hudTimer").textContent = "DOJO";
   } else if (newMode === "salem") {
     document.getElementById("hudWordMask").textContent = "VILLAGE OF SALEM";
-    document.getElementById("hudRole").textContent = "Keep your Last Will updated & deduce the evil roles!";
+    document.getElementById("hudRole").textContent = "Keep your Last Will updated & inspect the Graveyard!";
   }
 
   updateMobileControlsUI();
@@ -556,7 +562,7 @@ function render3DSnakeArena(snakes, orbs, worldW, worldH) {
 }
 
 // ============================================================================
-// 6. VILLAGE OF SALEM (EXPANDED ROLES + LAST WILL + BOMBER DETONATION)
+// 6. VILLAGE OF SALEM (GRAVEYARD ROLE LIST + PRIVATE MAFIA NIGHT CHAT)
 // ============================================================================
 document.getElementById("btnSaveWill").onclick = () => {
   const val = document.getElementById("salemWillInput").value.trim();
@@ -584,6 +590,31 @@ function renderSalemState(msg) {
   badge.textContent = `Role: ${roleLabel}${msg.extraStatus ? ` (${msg.extraStatus})` : ""}`;
   badge.className = `salem-role-badge role-${msg.myRole}`;
 
+  // Configure Right Chat Bar for Mafia Night Chat, Ghost Chat, or Sleeping Town
+  const chatInput = document.getElementById("chatInput");
+  const chatHeader = document.getElementById("chatHeaderTitle");
+  const isMafia = msg.myRole === "Godfather" || msg.myRole === "Killer";
+
+  if (!msg.amAlive) {
+    chatInput.disabled = false;
+    chatInput.placeholder = "👻 Dead Chat: Only fallen players can hear you...";
+    chatHeader.textContent = "👻 Graveyard Ghost Chat";
+  } else if (msg.phase === "night") {
+    if (isMafia) {
+      chatInput.disabled = false;
+      chatInput.placeholder = "🩸 Mafia Night Chat: Whisper to your Mafia partners...";
+      chatHeader.textContent = "🩸 Private Mafia Night Channel";
+    } else {
+      chatInput.disabled = true;
+      chatInput.placeholder = "🌙 Town is sleeping (Public chat muted until dawn)...";
+      chatHeader.textContent = "🌙 Night Phase (Town Sleeping)";
+    }
+  } else {
+    chatInput.disabled = false;
+    chatInput.placeholder = "Type your role claim, Last Will, or suspicion...";
+    chatHeader.textContent = "☀️ Town Square Day Chat";
+  }
+
   const detonateBtn = document.getElementById("btnBomberDetonate");
   detonateBtn.classList.toggle(
     "hidden",
@@ -600,6 +631,7 @@ function renderSalemState(msg) {
     sendPacket("salemAction", { target: "SKIP" });
   };
 
+  // 1. Render Town Player Cards
   const grid = document.getElementById("salemTownGrid");
   grid.innerHTML = "";
 
@@ -618,11 +650,12 @@ function renderSalemState(msg) {
       : "";
 
     let tagsHtml = "";
+    if (p.isMafiaMate) tagsHtml += `<span class="mini-tag tag-mafia">🩸 Mafia</span>`;
     if (p.hasBomb) tagsHtml += `<span class="mini-tag tag-bomb">💣 Rigged</span>`;
     if (p.isInfected) tagsHtml += `<span class="mini-tag tag-plague">☣️ Infected</span>`;
 
     card.innerHTML = `
-      <div class="avatar-circle" style="background:${p.color || "#6366f1"};width:32px;height:32px;font-size:13px;">
+      <div class="avatar-circle" style="background:${p.color || "#6366f1"};width:30px;height:30px;font-size:12px;">
         ${p.username.charAt(0).toUpperCase()}
       </div>
       <div style="font-weight:700;font-size:12px;">${p.username}</div>
@@ -633,7 +666,9 @@ function renderSalemState(msg) {
 
     if (msg.amAlive && p.alive && msg.canAct) {
       const canTargetSelf = msg.myRole === "Doctor" && msg.phase === "night";
-      if (p.username !== state.me.username || canTargetSelf) {
+      const isFellowMafiaAtNight = isMafia && p.isMafiaMate && msg.phase === "night";
+
+      if ((p.username !== state.me.username || canTargetSelf) && !isFellowMafiaAtNight) {
         const btn = document.createElement("button");
         btn.className = "btn-primary full-width";
         btn.textContent = msg.actionLabel || "Select";
@@ -649,6 +684,32 @@ function renderSalemState(msg) {
 
     grid.appendChild(card);
   });
+
+  // 2. Render Live Graveyard Role List & Last Wills
+  const graveList = document.getElementById("salemGraveyardList");
+  const graveBadge = document.getElementById("graveCountBadge");
+  const graves = msg.graveyard || [];
+  graveBadge.textContent = `${graves.length} Fallen`;
+
+  if (graves.length === 0) {
+    graveList.innerHTML = `<div style="font-size:11px;color:var(--text-dim);font-style:italic;">No casualties yet.</div>`;
+  } else {
+    graveList.innerHTML = "";
+    graves.forEach(g => {
+      const entry = document.createElement("div");
+      entry.className = "grave-entry";
+      const dispRole = g.role === "PlagueDoctor" ? "Plague Doctor" : g.role;
+      entry.innerHTML = `
+        <div class="grave-header">
+          <span>💀 ${g.username}</span>
+          <span class="salem-role-badge role-${g.role}" style="font-size:9px;padding:2px 6px;">${dispRole}</span>
+        </div>
+        <div style="font-size:10px;color:var(--text-dim);">Day ${g.day}: ${g.cause}</div>
+        <div class="grave-will">📜 ${g.willText || "No Last Will left behind."}</div>
+      `;
+      graveList.appendChild(entry);
+    });
+  }
 }
 
 // ============================================================================
@@ -1005,6 +1066,7 @@ function appendChatMessage(username, text, style = "") {
 document.getElementById("chatForm").onsubmit = (e) => {
   e.preventDefault();
   const input = document.getElementById("chatInput");
+  if (input.disabled) return;
   const text = input.value.trim();
   if (!text) return;
   sendPacket("guess", { text });
