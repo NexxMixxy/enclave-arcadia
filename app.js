@@ -1,6 +1,6 @@
 // ============================================================================
 // ENCLAVE ARCADE — LIVE MULTIPLAYER CLIENT (app.js)
-// Includes Live Graveyard Inspector, Private Mafia Night Chat & Ghost Chat
+// Includes Fixed Chat Ledger, 2D 1v1 Tournament Shadow Fight & Medium Seance
 // ============================================================================
 
 const RENDER_SERVER_URL = "https://enclave-arcade-live.onrender.com";
@@ -60,114 +60,11 @@ authForm.onsubmit = async (e) => {
   const room = document.getElementById("authRoom").value.trim().toUpperCase() || "MAIN";
 
   try {
-    const res = await fetch(`${RENDER_SERVER_URL}/api/auth`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: state.authMode, username, password, color })
-    });
-    const data = await res.json();
-
-    if (!data.ok) {
-      authError.textContent = data.error || "Login failed";
-      return;
-    }
-
-    state.me.username = data.user.username;
-    state.me.color = data.user.color || color;
-    state.me.wins = data.user.wins || 0;
-    state.room = room;
-
-    finishLogin();
-  } catch (err) {
-    state.me.username = username;
-    state.me.color = color;
-    state.room = room;
-    finishLogin();
-  }
-};
-
-function finishLogin() {
-  document.getElementById("myUsername").textContent = state.me.username;
-  document.getElementById("myTotalWins").textContent = `${state.me.wins} Wins`;
+    const res = await fetch(`${RENDER_SERVER_URL}/api/auth`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: state.authMode, username, password, color }) }); const data = await res.json();  if (!data.ok) { authError.textContent = data.error \vert{}\vert{} "Login failed"; return; }  state.me.username = data.user.username; state.me.color = data.user.color \vert{}\vert{} color; state.me.wins = data.user.wins \vert{}\vert{} 0; state.room = room;  finishLogin(); } catch (err) { state.me.username = username; state.me.color = color; state.room = room; finishLogin(); } };  function finishLogin() { document.getElementById("myUsername").textContent = state.me.username; document.getElementById("myTotalWins").textContent = `${state.me.wins} Wins`;
   const badge = document.getElementById("myBadge");
   badge.textContent = state.me.username.charAt(0).toUpperCase();
   badge.style.background = state.me.color;
-  document.getElementById("roomBadge").textContent = `Room: ${state.room}`;
-  document.getElementById("authModal").classList.add("hidden");
-
-  updateMobileControlsUI();
-  connectWebSocket();
-}
-
-// ============================================================================
-// 2. WEBSOCKET CONNECTION & SERVER SYNC
-// ============================================================================
-let ws = null;
-
-function connectWebSocket() {
-  const dot = document.getElementById("connStatus");
-  ws = new WebSocket(WS_URL);
-
-  ws.onopen = () => {
-    dot.classList.remove("offline");
-    dot.classList.add("online");
-    sendPacket("join", { roomId: state.room, player: state.me });
-  };
-
-  ws.onclose = () => {
-    dot.classList.remove("online");
-    dot.classList.add("offline");
-    setTimeout(connectWebSocket, 3500);
-  };
-
-  ws.onmessage = (event) => {
-    const msg = JSON.parse(event.data);
-    handleServerPacket(msg);
-  };
-}
-
-function sendPacket(type, payload = {}) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type, ...payload }));
-  }
-}
-
-function handleServerPacket(msg) {
-  switch (msg.type) {
-    case "roster":
-      state.players = msg.players || [];
-      state.hostUsername = msg.hostUsername || "";
-      state.isHost = state.me.username.toLowerCase() === state.hostUsername.toLowerCase();
-      updateHostPermissionsUI();
-      renderRoster();
-      break;
-
-    case "modeSync":
-      applyModeUI(msg.mode, msg.settings);
-      break;
-
-    case "stroke":
-      if (state.mode === "skribbl" || state.mode === "hangman" || state.mode === "gartic") {
-        drawSegment(msg.x0, msg.y0, msg.x1, msg.y1, msg.color, msg.size, false);
-      }
-      break;
-
-    case "clearCanvas":
-      clearCanvasBoard(false);
-      break;
-
-    case "roundState":
-      document.getElementById("hudWordMask").textContent = msg.maskedWord || "_ _ _ _ _";
-      document.getElementById("hudRound").textContent = `Round ${msg.round} / ${msg.maxRounds}`;
-      document.getElementById("hudRole").textContent = msg.roleText || "";
-      state.canDraw = Boolean(msg.canDraw);
-      if (msg.hangmanLeft !== undefined) {
-        document.getElementById("hudChancesLeft").textContent = `${msg.hangmanLeft} / ${msg.hangmanMax}`;
-      }
-      break;
-
-    case "timer":
-      document.getElementById("hudTimer").textContent = `${msg.timeLeft}s`;
+  document.getElementById("roomBadge").textContent = `Room: ${state.room}`; document.getElementById("authModal").classList.add("hidden");  updateMobileControlsUI(); connectWebSocket(); }  // ============================================================================ // 2. WEBSOCKET CONNECTION & SERVER SYNC // ============================================================================ let ws = null;  function connectWebSocket() { const dot = document.getElementById("connStatus"); ws = new WebSocket(WS_URL);  ws.onopen = () => { dot.classList.remove("offline"); dot.classList.add("online"); sendPacket("join", { roomId: state.room, player: state.me }); };  ws.onclose = () => { dot.classList.remove("online"); dot.classList.add("offline"); setTimeout(connectWebSocket, 3500); };  ws.onmessage = (event) => { const msg = JSON.parse(event.data); handleServerPacket(msg); }; }  function sendPacket(type, payload = {}) { if (ws && ws.readyState === WebSocket.OPEN) { ws.send(JSON.stringify({ type, ...payload })); } }  function handleServerPacket(msg) { switch (msg.type) { case "roster": state.players = msg.players \vert{}\vert{} []; state.hostUsername = msg.hostUsername \vert{}\vert{} ""; state.isHost = state.me.username.toLowerCase() === state.hostUsername.toLowerCase(); updateHostPermissionsUI(); renderRoster(); break;  case "modeSync": applyModeUI(msg.mode, msg.settings); break;  case "stroke": if (state.mode === "skribbl" \vert{}\vert{} state.mode === "hangman" \vert{}\vert{} state.mode === "gartic") { drawSegment(msg.x0, msg.y0, msg.x1, msg.y1, msg.color, msg.size, false); } break;  case "clearCanvas": clearCanvasBoard(false); break;  case "roundState": document.getElementById("hudWordMask").textContent = msg.maskedWord \vert{}\vert{} "_ _ _ _ _"; document.getElementById("hudRound").textContent = `Round ${msg.round} / ${msg.maxRounds}`; document.getElementById("hudRole").textContent = msg.roleText \vert{}\vert{} ""; state.canDraw = Boolean(msg.canDraw); if (msg.hangmanLeft !== undefined) { document.getElementById("hudChancesLeft").textContent = `${msg.hangmanLeft} / ${msg.hangmanMax}`; } break;  case "timer": document.getElementById("hudTimer").textContent = `${msg.timeLeft}s`;
       break;
 
     case "chat":
@@ -190,7 +87,7 @@ function handleServerPacket(msg) {
 
     case "shadowTick":
       if (state.mode === "shadow") {
-        renderShadowFightArena(msg.fighters, msg.effects);
+        renderShadowFightArena(msg.fighters, msg.effects, msg.bracket);
       }
       break;
 
@@ -209,198 +106,7 @@ function updateHostPermissionsUI() {
   const hostBadge = document.getElementById("hostBadge");
   hostBadge.textContent = state.isHost
     ? "👑 You are Room Host"
-    : `👑 Host: ${state.hostUsername || "None"}`;
-
-  const settingsPanel = document.getElementById("hostSettingsPanel");
-  settingsPanel.classList.toggle("locked-panel", !state.isHost);
-
-  const controls = [
-    "setDrawTime", "setRounds", "setHangmanChances",
-    "setDifficulty", "setAiCount", "setAiTier", "setSalemAiStyle", "btnStartMatch"
-  ];
-  controls.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.disabled = !state.isHost;
-  });
-
-  document.querySelectorAll(".mode-tab").forEach(tab => {
-    tab.classList.toggle("locked-tab", !state.isHost);
-    tab.title = state.isHost ? "Switch Game Mode" : "Only the Room Host can switch game modes";
-  });
-}
-
-function applyModeUI(newMode, settings) {
-  state.mode = newMode;
-  state.drawing = false;
-
-  document.querySelectorAll(".mode-tab").forEach(b => {
-    b.classList.toggle("active", b.dataset.mode === newMode);
-  });
-
-  if (settings) {
-    document.getElementById("setDrawTime").value = settings.drawTime || 75;
-    document.getElementById("setRounds").value = settings.rounds || 3;
-    document.getElementById("setHangmanChances").value = settings.hangmanMaxGuesses || 10;
-    document.getElementById("setDifficulty").value = settings.difficulty || "ALL";
-    if (settings.aiCount !== undefined) document.getElementById("setAiCount").value = String(settings.aiCount);
-    if (settings.aiTier) document.getElementById("setAiTier").value = settings.aiTier;
-    if (settings.salemAiStyle) document.getElementById("setSalemAiStyle").value = settings.salemAiStyle;
-  }
-
-  const hideToolbar = newMode === "snake" || newMode === "shadow" || newMode === "salem";
-  document.getElementById("hudHangmanBox").classList.toggle("hidden", newMode !== "hangman");
-  document.getElementById("btnSwitchTeam").classList.toggle("hidden", newMode !== "hangman");
-  document.getElementById("drawToolbar").classList.toggle("hidden", hideToolbar);
-  document.getElementById("garticPanel").classList.toggle("hidden", newMode !== "gartic");
-  document.getElementById("salemPanel").classList.toggle("hidden", newMode !== "salem");
-  document.getElementById("btnSubmitDrawing").classList.toggle("hidden", newMode !== "gartic");
-
-  // Reset chat input state when leaving Salem
-  const chatInput = document.getElementById("chatInput");
-  chatInput.disabled = false;
-  chatInput.placeholder = "Type a guess, claim, or suspicion...";
-  document.getElementById("chatHeaderTitle").textContent = "Live Guesses & Town Chat";
-
-  clearCanvasBoard(false);
-
-  if (newMode === "snake") {
-    document.getElementById("hudWordMask").textContent = "3D SNAKE.IO";
-    document.getElementById("hudRole").textContent = "3200x3200 Arena — Check the top-right Mini-Map!";
-    document.getElementById("hudTimer").textContent = "ENDLESS";
-  } else if (newMode === "shadow") {
-    document.getElementById("hudWordMask").textContent = "SHADOW FIGHT";
-    document.getElementById("hudRole").textContent = "PC: WASD + J(Punch) K(Kick) L(Katana) Space(Block)";
-    document.getElementById("hudTimer").textContent = "DOJO";
-  } else if (newMode === "salem") {
-    document.getElementById("hudWordMask").textContent = "VILLAGE OF SALEM";
-    document.getElementById("hudRole").textContent = "Keep your Last Will updated & inspect the Graveyard!";
-  }
-
-  updateMobileControlsUI();
-}
-
-document.querySelectorAll(".mode-tab").forEach(btn => {
-  btn.onclick = () => {
-    if (!state.isHost) {
-      appendChatMessage("System", "Only the Room Host can switch the active game mode.", "system");
-      return;
-    }
-    sendPacket("switchMode", { mode: btn.dataset.mode });
-  };
-});
-
-document.getElementById("btnStartMatch").onclick = () => {
-  if (!state.isHost) return;
-  const settings = {
-    mode: state.mode,
-    drawTime: Number(document.getElementById("setDrawTime").value) || 75,
-    rounds: Number(document.getElementById("setRounds").value) || 3,
-    hangmanMaxGuesses: Number(document.getElementById("setHangmanChances").value) || 10,
-    difficulty: document.getElementById("setDifficulty").value,
-    aiCount: Number(document.getElementById("setAiCount").value) || 0,
-    aiTier: document.getElementById("setAiTier").value || "medium",
-    salemAiStyle: document.getElementById("setSalemAiStyle").value || "deductive"
-  };
-  sendPacket("startGame", { settings });
-};
-
-document.getElementById("btnSwitchTeam").onclick = () => {
-  sendPacket("swapTeam");
-};
-
-// ============================================================================
-// 4. CANVAS DRAWING & PNG SAVING
-// ============================================================================
-const canvas = document.getElementById("arcadeCanvas");
-const ctx = canvas.getContext("2d");
-clearCanvasBoard(false);
-
-const colors = [
-  "#000000", "#ffffff", "#ef4444", "#f59e0b",
-  "#10b981", "#3b82f6", "#6366f1", "#ec4899", "#78350f"
-];
-const paletteEl = document.getElementById("colorPalette");
-
-colors.forEach((hex, i) => {
-  const sw = document.createElement("div");
-  sw.className = "color-swatch" + (i === 0 ? " active" : "");
-  sw.style.background = hex;
-  sw.onclick = () => {
-    state.brushColor = hex;
-    document.querySelectorAll(".color-swatch").forEach(el => el.classList.remove("active"));
-    sw.classList.add("active");
-  };
-  paletteEl.appendChild(sw);
-});
-
-let prevPt = { x: 0, y: 0 };
-
-function getCanvasPoint(e) {
-  const rect = canvas.getBoundingClientRect();
-  return {
-    x: (e.clientX - rect.left) * (canvas.width / rect.width),
-    y: (e.clientY - rect.top) * (canvas.height / rect.height)
-  };
-}
-
-canvas.addEventListener("pointerdown", (e) => {
-  if (state.mode !== "skribbl" && state.mode !== "hangman" && state.mode !== "gartic") return;
-  if (!state.canDraw) return;
-  state.drawing = true;
-  prevPt = getCanvasPoint(e);
-});
-
-canvas.addEventListener("pointermove", (e) => {
-  const pt = getCanvasPoint(e);
-
-  if (state.mode === "snake" && !state.mobileControls) {
-    const angle = Math.atan2(pt.y - 270, pt.x - 480);
-    sendPacket("snakeInput", { angle });
-    return;
-  }
-
-  if (!state.drawing || !state.canDraw) return;
-  if (state.mode !== "skribbl" && state.mode !== "hangman" && state.mode !== "gartic") return;
-  drawSegment(prevPt.x, prevPt.y, pt.x, pt.y, state.brushColor, state.brushSize, true);
-  prevPt = pt;
-});
-
-window.addEventListener("pointerup", () => {
-  state.drawing = false;
-});
-
-function drawSegment(x0, y0, x1, y1, color, size, emit) {
-  ctx.beginPath();
-  ctx.moveTo(x0, y0);
-  ctx.lineTo(x1, y1);
-  ctx.strokeStyle = color;
-  ctx.lineWidth = size;
-  ctx.lineCap = "round";
-  ctx.stroke();
-
-  if (emit) {
-    sendPacket("stroke", { x0, y0, x1, y1, color, size });
-  }
-}
-
-function clearCanvasBoard(emit = true) {
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  if (emit) sendPacket("clearCanvas");
-}
-
-document.getElementById("brushSize").oninput = (e) => {
-  state.brushSize = Number(e.target.value);
-};
-document.getElementById("btnEraser").onclick = () => {
-  state.brushColor = "#ffffff";
-};
-document.getElementById("btnClearCanvas").onclick = () => {
-  if (state.canDraw) clearCanvasBoard(true);
-};
-document.getElementById("btnDownloadPng").onclick = () => {
-  const link = document.createElement("a");
-  link.download = `enclave-arcade-${Date.now()}.png`;
+    : `👑 Host: ${state.hostUsername \vert{}\vert{} "None"}`;  const settingsPanel = document.getElementById("hostSettingsPanel"); settingsPanel.classList.toggle("locked-panel", !state.isHost);  const controls = [ "setDrawTime", "setRounds", "setHangmanChances", "setDifficulty", "setAiCount", "setAiTier", "setSalemAiStyle", "btnStartMatch" ]; controls.forEach(id => { const el = document.getElementById(id); if (el) el.disabled = !state.isHost; });  document.querySelectorAll(".mode-tab").forEach(tab => { tab.classList.toggle("locked-tab", !state.isHost); tab.title = state.isHost ? "Switch Game Mode" : "Only the Room Host can switch game modes"; }); }  function applyModeUI(newMode, settings) { state.mode = newMode; state.drawing = false;  document.querySelectorAll(".mode-tab").forEach(b => { b.classList.toggle("active", b.dataset.mode === newMode); });  if (settings) { document.getElementById("setDrawTime").value = settings.drawTime \vert{}\vert{} 75; document.getElementById("setRounds").value = settings.rounds \vert{}\vert{} 3; document.getElementById("setHangmanChances").value = settings.hangmanMaxGuesses \vert{}\vert{} 10; document.getElementById("setDifficulty").value = settings.difficulty \vert{}\vert{} "ALL"; if (settings.aiCount !== undefined) document.getElementById("setAiCount").value = String(settings.aiCount); if (settings.aiTier) document.getElementById("setAiTier").value = settings.aiTier; if (settings.salemAiStyle) document.getElementById("setSalemAiStyle").value = settings.salemAiStyle; }  const hideToolbar = newMode === "snake" \vert{}\vert{} newMode === "shadow" \vert{}\vert{} newMode === "salem"; document.getElementById("hudHangmanBox").classList.toggle("hidden", newMode !== "hangman"); document.getElementById("btnSwitchTeam").classList.toggle("hidden", newMode !== "hangman"); document.getElementById("drawToolbar").classList.toggle("hidden", hideToolbar); document.getElementById("garticPanel").classList.toggle("hidden", newMode !== "gartic"); document.getElementById("salemPanel").classList.toggle("hidden", newMode !== "salem"); document.getElementById("btnSubmitDrawing").classList.toggle("hidden", newMode !== "gartic");  const chatInput = document.getElementById("chatInput"); chatInput.disabled = false; chatInput.placeholder = "Type a guess, claim, or suspicion..."; document.getElementById("chatHeaderTitle").textContent = "Live Guesses & Town Ledger";  clearCanvasBoard(false);  if (newMode === "snake") { document.getElementById("hudWordMask").textContent = "3D SNAKE.IO"; document.getElementById("hudRole").textContent = "3200x3200 Arena — Check the top-right Mini-Map!"; document.getElementById("hudTimer").textContent = "ENDLESS"; } else if (newMode === "shadow") { document.getElementById("hudWordMask").textContent = "1V1 DOJO TOURNAMENT"; document.getElementById("hudRole").textContent = "A/D(Move) W(Jump) J(Jab) K(Kick) L(Katana) S/Space(Guard)"; document.getElementById("hudTimer").textContent = "BRACKET"; } else if (newMode === "salem") { document.getElementById("hudWordMask").textContent = "VILLAGE OF SALEM"; document.getElementById("hudRole").textContent = "Medium seances every 3rd Night; Mayor can reveal for 3x vote!"; }  updateMobileControlsUI(); }  document.querySelectorAll(".mode-tab").forEach(btn => { btn.onclick = () => { if (!state.isHost) { appendChatMessage("System", "Only the Room Host can switch the active game mode.", "system"); return; } sendPacket("switchMode", { mode: btn.dataset.mode }); }; });  document.getElementById("btnStartMatch").onclick = () => { if (!state.isHost) return; const settings = { mode: state.mode, drawTime: Number(document.getElementById("setDrawTime").value) \vert{}\vert{} 75, rounds: Number(document.getElementById("setRounds").value) \vert{}\vert{} 3, hangmanMaxGuesses: Number(document.getElementById("setHangmanChances").value) \vert{}\vert{} 10, difficulty: document.getElementById("setDifficulty").value, aiCount: Number(document.getElementById("setAiCount").value) \vert{}\vert{} 0, aiTier: document.getElementById("setAiTier").value \vert{}\vert{} "medium", salemAiStyle: document.getElementById("setSalemAiStyle").value \vert{}\vert{} "deductive" }; sendPacket("startGame", { settings }); };  document.getElementById("btnSwitchTeam").onclick = () => { sendPacket("swapTeam"); };  // ============================================================================ // 4. CANVAS DRAWING & PNG SAVING // ============================================================================ const canvas = document.getElementById("arcadeCanvas"); const ctx = canvas.getContext("2d"); clearCanvasBoard(false);  const colors = [ "#000000", "#ffffff", "#ef4444", "#f59e0b", "#10b981", "#3b82f6", "#6366f1", "#ec4899", "#78350f" ]; const paletteEl = document.getElementById("colorPalette");  colors.forEach((hex, i) => { const sw = document.createElement("div"); sw.className = "color-swatch" + (i === 0 ? " active" : ""); sw.style.background = hex; sw.onclick = () => { state.brushColor = hex; document.querySelectorAll(".color-swatch").forEach(el => el.classList.remove("active")); sw.classList.add("active"); }; paletteEl.appendChild(sw); });  let prevPt = { x: 0, y: 0 };  function getCanvasPoint(e) { const rect = canvas.getBoundingClientRect(); return { x: (e.clientX - rect.left) * (canvas.width / rect.width), y: (e.clientY - rect.top) * (canvas.height / rect.height) }; }  canvas.addEventListener("pointerdown", (e) => { if (state.mode !== "skribbl" && state.mode !== "hangman" && state.mode !== "gartic") return; if (!state.canDraw) return; state.drawing = true; prevPt = getCanvasPoint(e); });  canvas.addEventListener("pointermove", (e) => { const pt = getCanvasPoint(e);  if (state.mode === "snake" && !state.mobileControls) { const angle = Math.atan2(pt.y - 270, pt.x - 480); sendPacket("snakeInput", { angle }); return; }  if (!state.drawing \vert{}\vert{} !state.canDraw) return; if (state.mode !== "skribbl" && state.mode !== "hangman" && state.mode !== "gartic") return; drawSegment(prevPt.x, prevPt.y, pt.x, pt.y, state.brushColor, state.brushSize, true); prevPt = pt; });  window.addEventListener("pointerup", () => { state.drawing = false; });  function drawSegment(x0, y0, x1, y1, color, size, emit) { ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.strokeStyle = color; ctx.lineWidth = size; ctx.lineCap = "round"; ctx.stroke();  if (emit) { sendPacket("stroke", { x0, y0, x1, y1, color, size }); } }  function clearCanvasBoard(emit = true) { ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, canvas.width, canvas.height); if (emit) sendPacket("clearCanvas"); }  document.getElementById("brushSize").oninput = (e) => { state.brushSize = Number(e.target.value); }; document.getElementById("btnEraser").onclick = () => { state.brushColor = "#ffffff"; }; document.getElementById("btnClearCanvas").onclick = () => { if (state.canDraw) clearCanvasBoard(true); }; document.getElementById("btnDownloadPng").onclick = () => { const link = document.createElement("a"); link.download = `enclave-arcade-${Date.now()}.png`;
   link.href = canvas.toDataURL("image/png");
   link.click();
 };
@@ -562,7 +268,7 @@ function render3DSnakeArena(snakes, orbs, worldW, worldH) {
 }
 
 // ============================================================================
-// 6. VILLAGE OF SALEM (GRAVEYARD ROLE LIST + PRIVATE MAFIA NIGHT CHAT)
+// 6. VILLAGE OF SALEM (MEDIUM SEANCE, MAYOR, EXECUTIONER, BODYGUARD, GRAVEYARD)
 // ============================================================================
 document.getElementById("btnSaveWill").onclick = () => {
   const val = document.getElementById("salemWillInput").value.trim();
@@ -575,53 +281,25 @@ document.getElementById("btnBomberDetonate").onclick = () => {
   sendPacket("salemAction", { target: "DETONATE" });
 };
 
+document.getElementById("btnMayorReveal").onclick = () => {
+  sendPacket("salemMayorReveal");
+};
+
 function renderSalemState(msg) {
   const panel = document.getElementById("salemPanel");
   panel.classList.remove("hidden");
 
   const moonIcon = msg.fullMoon ? "🌕 FULL MOON " : "";
+  const seanceIcon = msg.seanceNight ? "🔮 SEANCE NIGHT " : "";
   document.getElementById("salemPhaseTitle").textContent =
-    `Day ${msg.day} — ${moonIcon}${msg.phase.toUpperCase()} PHASE`;
+    `Day ${msg.day} —${moonIcon}${seanceIcon}${msg.phase.toUpperCase()} PHASE`;
   document.getElementById("salemInstruction").textContent = msg.instruction || "";
   document.getElementById("salemReportBanner").textContent = msg.report || "";
 
   const badge = document.getElementById("salemMyRoleBadge");
   const roleLabel = msg.myRole === "PlagueDoctor" ? "Plague Doctor" : msg.myRole;
   badge.textContent = `Role: ${roleLabel}${msg.extraStatus ? ` (${msg.extraStatus})` : ""}`;
-  badge.className = `salem-role-badge role-${msg.myRole}`;
-
-  // Configure Right Chat Bar for Mafia Night Chat, Ghost Chat, or Sleeping Town
-  const chatInput = document.getElementById("chatInput");
-  const chatHeader = document.getElementById("chatHeaderTitle");
-  const isMafia = msg.myRole === "Godfather" || msg.myRole === "Killer";
-
-  if (!msg.amAlive) {
-    chatInput.disabled = false;
-    chatInput.placeholder = "👻 Dead Chat: Only fallen players can hear you...";
-    chatHeader.textContent = "👻 Graveyard Ghost Chat";
-  } else if (msg.phase === "night") {
-    if (isMafia) {
-      chatInput.disabled = false;
-      chatInput.placeholder = "🩸 Mafia Night Chat: Whisper to your Mafia partners...";
-      chatHeader.textContent = "🩸 Private Mafia Night Channel";
-    } else {
-      chatInput.disabled = true;
-      chatInput.placeholder = "🌙 Town is sleeping (Public chat muted until dawn)...";
-      chatHeader.textContent = "🌙 Night Phase (Town Sleeping)";
-    }
-  } else {
-    chatInput.disabled = false;
-    chatInput.placeholder = "Type your role claim, Last Will, or suspicion...";
-    chatHeader.textContent = "☀️ Town Square Day Chat";
-  }
-
-  const detonateBtn = document.getElementById("btnBomberDetonate");
-  detonateBtn.classList.toggle(
-    "hidden",
-    !(msg.amAlive && msg.phase === "night" && msg.myRole === "Bomber" && msg.plantedCount > 0)
-  );
-  if (msg.plantedCount > 0) {
-    detonateBtn.textContent = `💥 Detonate (${msg.plantedCount})`;
+  badge.className = `salem-role-badge role-${msg.myRole}`;  // Configure Right Chat Bar for Medium Seance, Mafia Night Chat, or Ghost Chat const chatInput = document.getElementById("chatInput"); const chatHeader = document.getElementById("chatHeaderTitle"); const isMafia = ["Godfather", "Killer", "Consigliere"].includes(msg.myRole); const isMediumSeance = msg.myRole === "Medium" && msg.seanceNight && msg.phase === "night";  if (!msg.amAlive) { chatInput.disabled = false; chatInput.placeholder = msg.seanceNight && msg.phase === "night" ? "🔮 Seance Active: The living Medium can hear you tonight!" : "👻 Dead Chat: Only fallen players can hear you..."; chatHeader.textContent = msg.seanceNight && msg.phase === "night" ? "🔮 Medium Seance & Ghost Channel" : "👻 Graveyard Ghost Chat"; } else if (msg.phase === "night") { if (isMafia) { chatInput.disabled = false; chatInput.placeholder = "🩸 Mafia Night Chat: Whisper to your Mafia partners..."; chatHeader.textContent = "🩸 Private Mafia Night Channel"; } else if (isMediumSeance) { chatInput.disabled = false; chatInput.placeholder = "🔮 Seance Open: Speak with the Graveyard ghosts tonight!"; chatHeader.textContent = "🔮 Medium Seance Channel (Every 3rd Night)"; } else { chatInput.disabled = true; chatInput.placeholder = "🌙 Town is sleeping (Public chat muted until dawn)..."; chatHeader.textContent = "🌙 Night Phase (Town Sleeping)"; } } else { chatInput.disabled = false; chatInput.placeholder = "Type your role claim, Last Will, or suspicion..."; chatHeader.textContent = "☀️ Town Square Day Ledger"; }  // Mayor Reveal Button const mayorBtn = document.getElementById("btnMayorReveal"); mayorBtn.classList.toggle( "hidden", !(msg.amAlive && msg.myRole === "Mayor" && !msg.mayorRevealed && msg.phase !== "night") );  // Bomber Detonate Button const detonateBtn = document.getElementById("btnBomberDetonate"); detonateBtn.classList.toggle( "hidden", !(msg.amAlive && msg.phase === "night" && msg.myRole === "Bomber" && msg.plantedCount > 0) ); if (msg.plantedCount > 0) { detonateBtn.textContent = `💥 Detonate (${msg.plantedCount})`;
   }
 
   const skipBtn = document.getElementById("btnSalemSkipVote");
@@ -651,6 +329,8 @@ function renderSalemState(msg) {
 
     let tagsHtml = "";
     if (p.isMafiaMate) tagsHtml += `<span class="mini-tag tag-mafia">🩸 Mafia</span>`;
+    if (p.mayorRevealed) tagsHtml += `<span class="mini-tag tag-mayor">🎖️ Mayor (3x)</span>`;
+    if (p.isExecTarget) tagsHtml += `<span class="mini-tag tag-exec">🎯 Your Target</span>`;
     if (p.hasBomb) tagsHtml += `<span class="mini-tag tag-bomb">💣 Rigged</span>`;
     if (p.isInfected) tagsHtml += `<span class="mini-tag tag-plague">☣️ Infected</span>`;
 
@@ -658,15 +338,14 @@ function renderSalemState(msg) {
       <div class="avatar-circle" style="background:${p.color || "#6366f1"};width:30px;height:30px;font-size:12px;">
         ${p.username.charAt(0).toUpperCase()}
       </div>
-      <div style="font-weight:700;font-size:12px;">${p.username}</div>
-      ${roleInfo}
+      <div style="font-weight:700;font-size:12px;">${p.username}</div>${roleInfo}
       <div class="salem-tag-row">${tagsHtml}</div>
       <div class="salem-votes">${voteCount}</div>
     `;
 
     if (msg.amAlive && p.alive && msg.canAct) {
       const canTargetSelf = msg.myRole === "Doctor" && msg.phase === "night";
-      const isFellowMafiaAtNight = isMafia && p.isMafiaMate && msg.phase === "night";
+      const isFellowMafiaAtNight = isMafia && p.isMafiaMate && msg.phase === "night" && msg.myRole !== "Consigliere";
 
       if ((p.username !== state.me.username || canTargetSelf) && !isFellowMafiaAtNight) {
         const btn = document.createElement("button");
@@ -704,7 +383,7 @@ function renderSalemState(msg) {
           <span>💀 ${g.username}</span>
           <span class="salem-role-badge role-${g.role}" style="font-size:9px;padding:2px 6px;">${dispRole}</span>
         </div>
-        <div style="font-size:10px;color:var(--text-dim);">Day ${g.day}: ${g.cause}</div>
+        <div style="font-size:10px;color:var(--text-dim);">Day ${g.day}:${g.cause}</div>
         <div class="grave-will">📜 ${g.willText || "No Last Will left behind."}</div>
       `;
       graveList.appendChild(entry);
@@ -713,34 +392,113 @@ function renderSalemState(msg) {
 }
 
 // ============================================================================
-// 7. STICKMAN SHADOW FIGHT RENDERER
+// 7. STICKMAN SHADOW FIGHT RENDERER (STILL 2D DOJO MAP + 1V1 BRACKET HUD)
 // ============================================================================
-function renderShadowFightArena(fighters, effects = []) {
-  const sky = ctx.createLinearGradient(0, 0, 0, 440);
-  sky.addColorStop(0, "#1a091e");
-  sky.addColorStop(0.45, "#6b1426");
-  sky.addColorStop(0.85, "#d97706");
-  sky.addColorStop(1, "#fbbf24");
+function renderShadowFightArena(fighters = [], effects = [], bracket = null) {
+  // Still 2D Traditional Dojo Backdrop
+  const sky = ctx.createLinearGradient(0, 0, 0, 430);
+  sky.addColorStop(0, "#140c1c");
+  sky.addColorStop(0.5, "#4a1525");
+  sky.addColorStop(1, "#c2410c");
   ctx.fillStyle = sky;
-  ctx.fillRect(0, 0, canvas.width, 440);
+  ctx.fillRect(0, 0, canvas.width, 430);
 
-  ctx.fillStyle = "rgba(254, 240, 138, 0.85)";
-  ctx.beginPath();
-  ctx.arc(480, 295, 95, 0, Math.PI * 2);
-  ctx.fill();
+  // Shoji Screen & Dojo Back Wall Panels (Crisp 2D Architectural Grid)
+  ctx.fillStyle = "rgba(254, 215, 170, 0.12)";
+  for (let i = 0; i < 6; i++) {
+    const bx = 130 + i * 120;
+    ctx.fillRect(bx, 130, 96, 260);
+    ctx.strokeStyle = "#1f1218";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(bx, 130, 96, 260);
+  }
 
+  // Dojo Outer Pillars & 2D Arena Bounds (120px to 840px)
   ctx.fillStyle = "#090a0f";
-  ctx.fillRect(70, 80, 26, 360);
-  ctx.fillRect(864, 80, 26, 360);
-  ctx.fillRect(0, 440, canvas.width, 100);
+  ctx.fillRect(90, 90, 28, 340);
+  ctx.fillRect(842, 90, 28, 340);
+
+  // Still 2D Wooden Tatami Mat Floor
+  ctx.fillStyle = "#181216";
+  ctx.fillRect(0, 430, canvas.width, 110);
+  ctx.fillStyle = "#2b1d23";
+  ctx.fillRect(90, 430, 780, 16);
 
   ctx.strokeStyle = "#f59e0b";
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(0, 440);
-  ctx.lineTo(canvas.width, 440);
+  ctx.moveTo(90, 430);
+  ctx.lineTo(870, 430);
   ctx.stroke();
 
+  // ==========================================================================
+  // TOP 1V1 TOURNAMENT BRACKET HUD OVERLAY
+  // ==========================================================================
+  if (bracket) {
+    ctx.fillStyle = "rgba(15, 17, 22, 0.88)";
+    ctx.strokeStyle = "rgba(245, 158, 11, 0.55)";
+    ctx.lineWidth = 1.5;
+    ctx.fillRect(140, 12, 680, 68);
+    ctx.strokeRect(140, 12, 680, 68);
+
+    ctx.fillStyle = "#fbbf24";
+    ctx.font = "800 13px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(
+      `🏆 ${bracket.stageName.toUpperCase()} —${bracket.currentMatchLabel}`,
+      480,
+      32
+    );
+
+    ctx.fillStyle = "#e5e7eb";
+    ctx.font = "600 11px sans-serif";
+    ctx.fillText(bracket.queueSummary || "Winner advances to the next round!", 480, 52);
+
+    ctx.fillStyle = "#9ca3af";
+    ctx.font = "600 10px sans-serif";
+    ctx.fillText(bracket.spectatorNote || "", 480, 69);
+  }
+
+  // Top Left & Right Street-Fighter / Shadow-Fight 1v1 Health Bars
+  if (fighters.length >= 1) {
+    const f1 = fighters[0];
+    ctx.fillStyle = "rgba(0,0,0,0.7)";
+    ctx.fillRect(140, 92, 280, 16);
+    ctx.fillStyle = f1.hp > 30 ? "#10b981" : "#ef4444";
+    ctx.fillRect(140, 92, (Math.max(0, f1.hp) / 100) * 280, 16);
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(140, 92, 280, 16);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "800 12px sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText(`${f1.username} (${Math.max(0, f1.hp)} HP)`, 144, 104);
+  }
+
+  if (fighters.length >= 2) {
+    const f2 = fighters[1];
+    ctx.fillStyle = "rgba(0,0,0,0.7)";
+    ctx.fillRect(540, 92, 280, 16);
+    ctx.fillStyle = f2.hp > 30 ? "#10b981" : "#ef4444";
+    const w2 = (Math.max(0, f2.hp) / 100) * 280;
+    ctx.fillRect(540 + (280 - w2), 92, w2, 16);
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(540, 92, 280, 16);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "800 12px sans-serif";
+    ctx.textAlign = "right";
+    ctx.fillText(`${f2.username} (${Math.max(0, f2.hp)} HP)`, 816, 104);
+
+    ctx.fillStyle = "#fbbf24";
+    ctx.font = "900 16px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("VS", 480, 105);
+  }
+
+  // Render the 2 Active 1v1 Stickman Duelists with Paced Martial Arts Poses
   const now = Date.now() / 1000;
 
   fighters.forEach(f => {
@@ -748,103 +506,118 @@ function renderShadowFightArena(fighters, effects = []) {
     const x = f.x;
     const y = f.y;
 
-    const barW = 74;
-    ctx.fillStyle = "rgba(0,0,0,0.65)";
-    ctx.fillRect(x - barW / 2, y - 122, barW, 8);
-    ctx.fillStyle = f.hp > 35 ? "#10b981" : "#ef4444";
-    ctx.fillRect(x - barW / 2, y - 122, (Math.max(0, f.hp) / 100) * barW, 8);
-
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "700 11px sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText(f.username, x, y - 128);
+    // Ground Shadow under stickman
+    ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
+    ctx.beginPath();
+    ctx.ellipse(x, 432, 24, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
 
     ctx.save();
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
 
-    const walkCycle = f.state === "walk" ? Math.sin(now * 14) * 14 : 0;
+    const walkSwing = f.state === "walk" ? Math.sin(now * 9.5) * 13 : 0;
+    const breathe = Math.sin(now * 4) * 2;
+    const lean = f.state === "slash" ? dir * 12 : (f.state === "kick" ? -dir * 6 : (f.state === "hitstun" ? -dir * 10 : 0));
+
     const hipX = x;
-    const hipY = y - 42;
-    const shoulderX = x + (f.state === "slash" ? dir * 8 : 0);
-    const shoulderY = y - 78;
-    const headX = shoulderX + dir * 2;
+    const hipY = y - 44 + breathe;
+    const shoulderX = x + lean;
+    const shoulderY = y - 82 + breathe;
+    const headX = shoulderX + dir * 3;
     const headY = shoulderY - 16;
 
+    // Flowing Headband
     ctx.strokeStyle = f.color || "#ef4444";
     ctx.lineWidth = 4;
     ctx.beginPath();
     ctx.moveTo(headX - dir * 8, headY - 3);
-    ctx.quadraticCurveTo(headX - dir * 24, headY + Math.sin(now * 12) * 8, headX - dir * 36, headY + 6);
+    ctx.quadraticCurveTo(headX - dir * 24, headY + Math.sin(now * 10) * 6, headX - dir * 38, headY + 7);
     ctx.stroke();
 
-    ctx.strokeStyle = "#050608";
+    // Silhouette Stickman Limbs
+    ctx.strokeStyle = f.state === "hitstun" ? "#ef4444" : "#050608";
     ctx.fillStyle = "#050608";
-    ctx.lineWidth = 7;
+    ctx.lineWidth = 7.5;
 
+    // Spine
     ctx.beginPath();
     ctx.moveTo(hipX, hipY);
     ctx.lineTo(shoulderX, shoulderY);
     ctx.stroke();
 
+    // Head + Glowing Eye
     ctx.beginPath();
-    ctx.arc(headX, headY, 11, 0, Math.PI * 2);
+    ctx.arc(headX, headY, 11.5, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.fillStyle = f.color || "#f59e0b";
+    ctx.fillStyle = f.color || "#fbbf24";
     ctx.beginPath();
-    ctx.arc(headX + dir * 5, headY - 2, 2.3, 0, Math.PI * 2);
+    ctx.arc(headX + dir * 5, headY - 2, 2.4, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.strokeStyle = "#050608";
+    // Articulated Legs (Knee -> Foot)
+    ctx.strokeStyle = f.state === "hitstun" ? "#ef4444" : "#050608";
     ctx.beginPath();
+    // Back Leg
     ctx.moveTo(hipX, hipY);
-    ctx.lineTo(hipX - dir * 12 + walkCycle, y);
+    ctx.lineTo(hipX - dir * 10 + walkSwing * 0.5, y - 20);
+    ctx.lineTo(hipX - dir * 16 + walkSwing, y);
+    // Front Leg (or High Martial Arts Kick)
     ctx.moveTo(hipX, hipY);
     if (f.state === "kick") {
-      ctx.lineTo(hipX + dir * 48, hipY - 14);
+      ctx.lineTo(hipX + dir * 26, hipY - 12);
+      ctx.lineTo(hipX + dir * 54, hipY - 18);
     } else {
-      ctx.lineTo(hipX + dir * 12 - walkCycle, y);
+      ctx.lineTo(hipX + dir * 12 - walkSwing * 0.5, y - 20);
+      ctx.lineTo(hipX + dir * 16 - walkSwing, y);
     }
     ctx.stroke();
 
+    // Articulated Arms & Weapons
     ctx.beginPath();
     ctx.moveTo(shoulderX, shoulderY);
     if (f.state === "punch") {
-      ctx.lineTo(shoulderX + dir * 44, shoulderY - 2);
+      ctx.lineTo(shoulderX + dir * 22, shoulderY - 2);
+      ctx.lineTo(shoulderX + dir * 48, shoulderY - 4);
       ctx.stroke();
     } else if (f.state === "block") {
-      ctx.lineTo(shoulderX + dir * 16, shoulderY - 18);
+      ctx.lineTo(shoulderX + dir * 15, shoulderY + 6);
+      ctx.lineTo(shoulderX + dir * 20, shoulderY - 18);
       ctx.stroke();
-      ctx.strokeStyle = "rgba(59, 130, 246, 0.75)";
+      ctx.strokeStyle = "rgba(59, 130, 246, 0.8)";
       ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.arc(x, y - 55, 42, 0, Math.PI * 2);
+      ctx.arc(x + dir * 12, y - 56, 36, -1.1, 1.1);
       ctx.stroke();
     } else if (f.state === "slash") {
-      const handX = shoulderX + dir * 34;
-      const handY = shoulderY - 8;
+      const handX = shoulderX + dir * 32;
+      const handY = shoulderY - 6;
       ctx.lineTo(handX, handY);
       ctx.stroke();
 
+      // Shadow Katana Blade
       ctx.strokeStyle = f.color || "#a855f7";
-      ctx.lineWidth = 4;
+      ctx.lineWidth = 4.5;
       ctx.beginPath();
       ctx.moveTo(handX, handY);
-      ctx.lineTo(handX + dir * 52, handY - 18);
+      ctx.lineTo(handX + dir * 58, handY - 14);
       ctx.stroke();
     } else {
-      ctx.lineTo(shoulderX + dir * 18, shoulderY + 14);
+      // Martial Arts Guard Stance
+      ctx.lineTo(shoulderX + dir * 14, shoulderY + 12);
+      ctx.lineTo(shoulderX + dir * 24, shoulderY + 2);
       ctx.stroke();
     }
 
     ctx.restore();
   });
 
+  // Hit Sparks
   effects.forEach(ef => {
     ctx.fillStyle = ef.color || "#fbbf24";
     ctx.beginPath();
-    ctx.arc(ef.x, ef.y, 12, 0, Math.PI * 2);
+    ctx.arc(ef.x, ef.y, 11, 0, Math.PI * 2);
     ctx.fill();
   });
 }
@@ -897,7 +670,7 @@ function handleJoystickMove(e) {
   const dist = Math.min(36, Math.hypot(dx, dy));
   const angle = Math.atan2(dy, dx);
 
-  joystickStick.style.transform = `translate(${Math.cos(angle) * dist}px, ${Math.sin(angle) * dist}px)`;
+  joystickStick.style.transform = `translate(${Math.cos(angle) * dist}px,${Math.sin(angle) * dist}px)`;
 
   if (state.mode === "snake") {
     sendPacket("snakeInput", { angle });
@@ -958,7 +731,7 @@ window.addEventListener("keyup", (e) => {
 });
 
 // ============================================================================
-// 9. GARTIC CHAIN, ROSTER & CHAT
+// 9. GARTIC CHAIN, ROSTER & FIXED SCROLLABLE CHAT TABLE
 // ============================================================================
 document.getElementById("btnGarticSubmitText").onclick = () => {
   const input = document.getElementById("garticSentenceInput");
@@ -1007,7 +780,7 @@ function renderGarticAlbum(chain) {
   chain.forEach((item, index) => {
     const div = document.createElement("div");
     div.className = "album-entry";
-    div.innerHTML = `<strong>${item.username}</strong>: ${item.prompt || "Drew an interpretation"}`;
+    div.innerHTML = `<strong>${item.username}</strong>:${item.prompt || "Drew an interpretation"}`;
     if (item.imageDataUrl) {
       const img = document.createElement("img");
       img.src = item.imageDataUrl;
@@ -1054,13 +827,31 @@ function renderRoster() {
   });
 }
 
+// Appends row into the Fixed-Height Scrollable Chat Ledger Table
 function appendChatMessage(username, text, style = "") {
-  const feed = document.getElementById("chatMessages");
-  const div = document.createElement("div");
-  div.className = `chat-line ${style}`;
-  div.innerHTML = `<strong>${username}:</strong> ${text}`;
-  feed.appendChild(div);
-  feed.scrollTop = feed.scrollHeight;
+  const tbody = document.getElementById("chatMessages");
+  const scrollBox = document.getElementById("chatScrollBox");
+  const tr = document.createElement("tr");
+  tr.className = `chat-row ${style}`;
+
+  const tdSender = document.createElement("td");
+  tdSender.className = "col-sender";
+  tdSender.textContent = username;
+  tdSender.title = username;
+
+  const tdMsg = document.createElement("td");
+  tdMsg.className = "col-msg";
+  tdMsg.textContent = text;
+
+  tr.appendChild(tdSender);
+  tr.appendChild(tdMsg);
+  tbody.appendChild(tr);
+
+  // Cap ledger at 120 rows so DOM stays fast
+  while (tbody.children.length > 120) {
+    tbody.removeChild(tbody.firstChild);
+  }
+  scrollBox.scrollTop = scrollBox.scrollHeight;
 }
 
 document.getElementById("chatForm").onsubmit = (e) => {
