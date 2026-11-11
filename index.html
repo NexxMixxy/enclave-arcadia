@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Enclave Arcadia</title>
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -12,26 +12,26 @@
   <div id="authModal" class="modal-backdrop">
     <div class="auth-card">
       <div class="auth-brand">ENCLAVE ARCADE</div>
-      <p class="auth-sub">Sign in or create an account to play live</p>
+      <p class="auth-sub">Sign in or create an account to play live on PC or Mobile</p>
 
       <div class="auth-tabs">
-        <button id="tabLogin" class="auth-tab active">Log In</button>
-        <button id="tabSignup" class="auth-tab">Sign Up</button>
+        <button type="button" id="tabLogin" class="auth-tab active">Log In</button>
+        <button type="button" id="tabSignup" class="auth-tab">Sign Up</button>
       </div>
 
       <form id="authForm" autocomplete="off">
         <label class="field-label">Username</label>
-        <input type="text" id="authUsername" class="text-input" placeholder="Enter username" required minlength="2" maxlength="18" />
+        <input type="text" id="authUsername" class="text-input" placeholder="Enter username" required minlength="2" maxlength="16" />
 
         <label class="field-label">Password</label>
         <input type="password" id="authPassword" class="text-input" placeholder="Enter password" required minlength="4" />
 
         <div id="signupExtra" class="hidden">
-          <label class="field-label">Profile Badge Color</label>
-          <input type="color" id="authColor" class="color-picker" value="#5865f2" />
+          <label class="field-label">Profile Color</label>
+          <input type="color" id="authColor" class="color-picker" value="#6366f1" />
         </div>
 
-        <label class="field-label">Room Code</label>
+        <label class="field-label">Room Code (First to join is Room Host)</label>
         <input type="text" id="authRoom" class="text-input" value="MAIN" placeholder="e.g. MAIN or VIP1" required maxlength="10" />
 
         <div id="authError" class="auth-error"></div>
@@ -45,21 +45,26 @@
     <div class="brand-group">
       <span class="logo-text">ENCLAVE ARCADE</span>
       <span id="roomBadge" class="room-pill">Room: MAIN</span>
-      <span id="connStatus" class="status-dot offline" title="Server Status"></span>
+      <span id="hostBadge" class="host-pill">Waiting...</span>
+      <span id="connStatus" class="status-dot offline" title="Server Connection"></span>
     </div>
 
-    <nav class="mode-nav">
-      <button class="mode-tab active" data-mode="skribbl">Skribbl Classic</button>
-      <button class="mode-tab" data-mode="gartic">Gartic Chain</button>
-      <button class="mode-tab" data-mode="hangman">Team Hangman</button>
-      <button class="mode-tab" data-mode="snake">Live Snake.io</button>
+    <nav class="mode-nav" id="modeNav">
+      <button type="button" class="mode-tab active" data-mode="skribbl">Skribbl Classic</button>
+      <button type="button" class="mode-tab" data-mode="gartic">Gartic Chain</button>
+      <button type="button" class="mode-tab" data-mode="hangman">Team Hangman</button>
+      <button type="button" class="mode-tab" data-mode="snake">3D Snake.io</button>
+      <button type="button" class="mode-tab" data-mode="shadow">Shadow Fight</button>
     </nav>
 
-    <div class="user-chip">
-      <div id="myBadge" class="avatar-circle">E</div>
-      <div class="user-meta">
-        <span id="myUsername" class="user-name">Guest</span>
-        <span id="myTotalWins" class="user-stats">0 Wins</span>
+    <div class="topbar-right">
+      <button type="button" id="btnToggleMobile" class="btn-tool">Mobile Controls: OFF</button>
+      <div class="user-chip">
+        <div id="myBadge" class="avatar-circle">E</div>
+        <div class="user-meta">
+          <span id="myUsername" class="user-name">Guest</span>
+          <span id="myTotalWins" class="user-stats">0 Wins</span>
+        </div>
       </div>
     </div>
   </header>
@@ -67,22 +72,25 @@
   <!-- MAIN 3-COLUMN WORKSPACE -->
   <main class="workspace">
 
-    <!-- LEFT SIDEBAR: LIVE PLAYERS & EDITABLE ROOM SETTINGS -->
+    <!-- LEFT SIDEBAR: PLAYERS + HOST SETTINGS + PARALLEL COLONY AI -->
     <aside class="sidebar-left">
       <div class="panel-block">
         <div class="panel-header">
-          <span>Players Online</span>
-          <button id="btnSwitchTeam" class="btn-mini hidden">Swap Team</button>
+          <span>Lobby Roster</span>
+          <button type="button" id="btnSwitchTeam" class="btn-mini hidden">Swap Team</button>
         </div>
         <div id="playerRoster" class="roster-list"></div>
       </div>
 
-      <div class="panel-block settings-panel">
-        <div class="panel-header">Match Settings</div>
+      <div class="panel-block settings-panel" id="hostSettingsPanel">
+        <div class="panel-header">
+          <span>Host Match Settings</span>
+          <span id="hostLockTag" class="lock-tag">Host Only</span>
+        </div>
 
         <div class="setting-row">
-          <span>Draw Time (sec)</span>
-          <input type="number" id="setDrawTime" value="80" min="20" max="180" />
+          <span>Draw / Round Time (s)</span>
+          <input type="number" id="setDrawTime" value="75" min="25" max="180" />
         </div>
 
         <div class="setting-row">
@@ -96,7 +104,7 @@
         </div>
 
         <div class="setting-row">
-          <span>Dictionary</span>
+          <span>Word Difficulty</span>
           <select id="setDifficulty">
             <option value="ALL">All Words</option>
             <option value="Easy">Easy</option>
@@ -105,43 +113,91 @@
           </select>
         </div>
 
-        <button id="btnStartMatch" class="btn-primary full-width">Start / Apply Rules</button>
+        <div class="divider-line"></div>
+        <div class="panel-header">Parallel Colony AI</div>
+
+        <div class="setting-row">
+          <span>AI Bot Count</span>
+          <select id="setAiCount">
+            <option value="0">0 Bots (Off)</option>
+            <option value="1">1 AI Bot</option>
+            <option value="2">2 AI Bots</option>
+            <option value="3">3 AI Bots</option>
+            <option value="4">4 AI Bots</option>
+          </select>
+        </div>
+
+        <div class="setting-row">
+          <span>Colony Intelligence</span>
+          <select id="setAiTier">
+            <option value="easy">Easy (Middle School 10-14y)</option>
+            <option value="medium" selected>Medium (High School 15-17y)</option>
+            <option value="hard">Hard (University 18-20y)</option>
+          </select>
+        </div>
+
+        <button type="button" id="btnStartMatch" class="btn-primary full-width">Start / Apply Rules</button>
       </div>
     </aside>
 
-    <!-- CENTER STAGE: HUD + CANVAS + OVERLAYS + TOOLBAR -->
+    <!-- CENTER STAGE: HUD + CANVAS + OVERLAYS + TOUCH CONTROLS + TOOLBAR -->
     <section class="center-stage">
       <div class="stage-hud">
         <div class="hud-left">
           <span id="hudRound" class="hud-sub">Round 1 / 3</span>
-          <span id="hudRole" class="hud-role">Waiting to start...</span>
+          <span id="hudRole" class="hud-role">Host can press Start / Apply Rules</span>
         </div>
 
         <div id="hudWordMask" class="word-mask">_ _ _ _ _ _</div>
 
         <div class="hud-right">
           <div id="hudHangmanBox" class="hangman-pill hidden">
-            Chances Left: <strong id="hudChancesLeft">10 / 10</strong>
+            Chances: <strong id="hudChancesLeft">10 / 10</strong>
           </div>
-          <div id="hudTimer" class="timer-pill">80s</div>
+          <div id="hudTimer" class="timer-pill">75s</div>
         </div>
       </div>
 
-      <div class="canvas-wrap">
+      <div class="canvas-wrap" id="canvasWrap">
         <canvas id="arcadeCanvas" width="960" height="540"></canvas>
 
         <!-- GARTIC SENTENCE & ALBUM OVERLAY -->
         <div id="garticPanel" class="stage-overlay hidden">
           <div class="gartic-box">
-            <h3 id="garticStepTitle">Step 1: Write a sentence for the next player to draw</h3>
-            <p id="garticTargetPrompt" class="gartic-prompt-banner hidden"></p>
+            <h3 id="garticStepTitle">Write a prompt for the next player to draw</h3>
+            <div id="garticTargetPrompt" class="gartic-prompt-banner hidden"></div>
 
             <div id="garticPromptControls" class="gartic-input-group">
-              <input type="text" id="garticSentenceInput" class="text-input" placeholder="e.g. An astronaut riding a skateboard on Mars" />
-              <button id="btnGarticSubmitText" class="btn-primary">Submit Sentence</button>
+              <input type="text" id="garticSentenceInput" class="text-input" placeholder="e.g. A samurai cat eating ramen in space" />
+              <button type="button" id="btnGarticSubmitText" class="btn-primary">Submit</button>
             </div>
 
             <div id="garticAlbumList" class="gartic-album"></div>
+          </div>
+        </div>
+
+        <!-- ON-SCREEN MOBILE / TOUCH CONTROLS OVERLAY (For Snake.io & Shadow Fight) -->
+        <div id="mobileControlsOverlay" class="mobile-overlay hidden">
+          <!-- Left Virtual Thumb Joystick -->
+          <div class="joystick-zone" id="joystickZone">
+            <div class="joystick-base" id="joystickBase">
+              <div class="joystick-stick" id="joystickStick"></div>
+            </div>
+          </div>
+
+          <!-- Right Action Buttons -->
+          <div class="action-buttons" id="mobileActionButtons">
+            <!-- Snake Boost Button -->
+            <button type="button" id="btnTouchBoost" class="touch-btn boost-btn hidden">BOOST</button>
+
+            <!-- Shadow Fight Martial Arts Buttons -->
+            <div id="shadowTouchCluster" class="shadow-cluster hidden">
+              <button type="button" class="touch-btn atk-punch" data-action="punch">PUNCH</button>
+              <button type="button" class="touch-btn atk-kick" data-action="kick">KICK</button>
+              <button type="button" class="touch-btn atk-slash" data-action="slash">KATANA</button>
+              <button type="button" class="touch-btn atk-block" data-action="block">BLOCK</button>
+              <button type="button" class="touch-btn atk-jump" data-action="jump">JUMP</button>
+            </div>
           </div>
         </div>
       </div>
@@ -151,21 +207,21 @@
         <div id="colorPalette" class="swatch-row"></div>
 
         <div class="tool-controls">
-          <label class="size-label">Brush <input type="range" id="brushSize" min="2" max="32" value="6" /></label>
-          <button id="btnEraser" class="btn-tool">Eraser</button>
-          <button id="btnClearCanvas" class="btn-tool">Clear</button>
-          <button id="btnSubmitDrawing" class="btn-primary hidden">Submit Drawing</button>
-          <button id="btnDownloadPng" class="btn-tool accent">Download PNG</button>
+          <label class="size-label">Size <input type="range" id="brushSize" min="2" max="32" value="6" /></label>
+          <button type="button" id="btnEraser" class="btn-tool">Eraser</button>
+          <button type="button" id="btnClearCanvas" class="btn-tool">Clear</button>
+          <button type="button" id="btnSubmitDrawing" class="btn-primary hidden">Submit Drawing</button>
+          <button type="button" id="btnDownloadPng" class="btn-tool accent">Save PNG</button>
         </div>
       </div>
     </section>
 
     <!-- RIGHT SIDEBAR: LIVE GUESSES & CHAT -->
     <aside class="sidebar-right">
-      <div class="panel-header chat-header">Live Guesses &amp; Chat</div>
+      <div class="panel-header chat-header">Live Guesses &amp; Feed</div>
       <div id="chatMessages" class="chat-feed"></div>
       <form id="chatForm" class="chat-bar" autocomplete="off">
-        <input type="text" id="chatInput" placeholder="Type a guess or message..." />
+        <input type="text" id="chatInput" placeholder="Type a guess or chat message..." />
       </form>
     </aside>
 
