@@ -32,8 +32,9 @@
       background: var(--bg-deep);
       color: var(--text-main);
       height: 100vh;
+      max-height: 100vh;
       display: grid;
-      grid-template-rows: auto 1fr;
+      grid-template-rows: 52px calc(100vh - 52px);
       overflow: hidden;
       user-select: none;
     }
@@ -156,9 +157,10 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 8px 14px;
+      padding: 0 14px;
       gap: 10px;
-      flex-wrap: wrap;
+      height: 52px;
+      overflow: hidden;
     }
 
     .brand-group {
@@ -204,7 +206,6 @@
     .mode-nav {
       display: flex;
       gap: 5px;
-      flex-wrap: wrap;
     }
 
     .mode-tab {
@@ -216,6 +217,7 @@
       font-size: 12px;
       font-weight: 600;
       cursor: pointer;
+      white-space: nowrap;
     }
 
     .mode-tab.active {
@@ -272,11 +274,13 @@
       color: var(--text-dim);
     }
 
-    /* Main Workspace */
+    /* Main Workspace (Strict Non-Expanding Height) */
     .workspace {
       display: grid;
-      grid-template-columns: 260px 1fr 290px;
-      height: 100%;
+      grid-template-columns: 255px 1fr 310px;
+      height: calc(100vh - 52px);
+      max-height: calc(100vh - 52px);
+      min-height: 0;
       overflow: hidden;
     }
 
@@ -288,6 +292,8 @@
       flex-direction: column;
       justify-content: space-between;
       gap: 10px;
+      height: 100%;
+      min-height: 0;
       overflow-y: auto;
     }
 
@@ -295,6 +301,7 @@
       display: flex;
       flex-direction: column;
       gap: 7px;
+      min-height: 0;
     }
 
     .panel-header {
@@ -326,7 +333,7 @@
       display: flex;
       flex-direction: column;
       gap: 5px;
-      max-height: 210px;
+      max-height: 195px;
       overflow-y: auto;
     }
 
@@ -404,6 +411,8 @@
       flex-direction: column;
       padding: 10px 14px;
       gap: 8px;
+      height: 100%;
+      min-height: 0;
       overflow: hidden;
     }
 
@@ -416,7 +425,7 @@
       align-items: center;
       justify-content: space-between;
       gap: 10px;
-      flex-wrap: wrap;
+      flex-shrink: 0;
     }
 
     .hud-left {
@@ -467,6 +476,7 @@
 
     .canvas-wrap {
       flex: 1;
+      min-height: 0;
       background: #ffffff;
       border-radius: 8px;
       position: relative;
@@ -597,6 +607,7 @@
       border-radius: 4px;
       font-size: 12px;
       line-height: 1.35;
+      flex-shrink: 0;
     }
 
     .gartic-input-group {
@@ -638,6 +649,7 @@
       padding: 8px 12px;
       gap: 8px;
       flex-wrap: wrap;
+      flex-shrink: 0;
     }
 
     .salem-role-badge {
@@ -647,10 +659,12 @@
       font-size: 11px;
       letter-spacing: 0.4px;
     }
-    .role-Godfather, .role-Killer { background: rgba(239, 68, 68, 0.22); color: #fca5a5; border: 1px solid #ef4444; }
-    .role-Doctor { background: rgba(16, 185, 129, 0.22); color: #6ee7b7; border: 1px solid #10b981; }
+    .role-Godfather, .role-Killer, .role-Consigliere { background: rgba(239, 68, 68, 0.22); color: #fca5a5; border: 1px solid #ef4444; }
+    .role-Doctor, .role-Bodyguard { background: rgba(16, 185, 129, 0.22); color: #6ee7b7; border: 1px solid #10b981; }
     .role-Sheriff, .role-Vigilante { background: rgba(59, 130, 246, 0.22); color: #93c5fd; border: 1px solid #3b82f6; }
-    .role-Jester { background: rgba(236, 72, 153, 0.22); color: #f9a8d4; border: 1px solid #ec4899; }
+    .role-Medium { background: rgba(168, 85, 247, 0.24); color: #d8b4fe; border: 1px solid #a855f7; }
+    .role-Mayor { background: rgba(245, 158, 11, 0.25); color: #fde68a; border: 1px solid #f59e0b; }
+    .role-Jester, .role-Executioner { background: rgba(236, 72, 153, 0.22); color: #f9a8d4; border: 1px solid #ec4899; }
     .role-Werewolf { background: rgba(217, 119, 6, 0.25); color: #fcd34d; border: 1px solid #f59e0b; }
     .role-Bomber { background: rgba(249, 115, 22, 0.25); color: #fdba74; border: 1px solid #f97316; }
     .role-PlagueDoctor, .role-Pestilence { background: rgba(132, 204, 22, 0.25); color: #bef264; border: 1px solid #84cc16; }
@@ -664,9 +678,9 @@
       border: 1px solid var(--border);
       padding: 6px 10px;
       border-radius: 8px;
+      flex-shrink: 0;
     }
 
-    /* Split Layout: Town Grid (Left) + Live Graveyard (Right) */
     .salem-split-body {
       flex: 1;
       display: grid;
@@ -678,7 +692,7 @@
 
     .salem-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(125px, 1fr));
       grid-auto-rows: max-content;
       gap: 8px;
       overflow-y: auto;
@@ -694,6 +708,7 @@
       flex-direction: column;
       gap: 6px;
       overflow-y: auto;
+      min-height: 0;
     }
 
     .grave-entry {
@@ -729,11 +744,11 @@
       background: var(--bg-panel);
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 9px;
+      padding: 8px;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 5px;
+      gap: 4px;
       text-align: center;
       transition: border-color 0.15s;
     }
@@ -768,6 +783,8 @@
       border-radius: 4px;
     }
     .tag-mafia { background: rgba(239, 68, 68, 0.28); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.6); }
+    .tag-mayor { background: rgba(245, 158, 11, 0.28); color: #fde68a; border: 1px solid #f59e0b; }
+    .tag-exec { background: rgba(236, 72, 153, 0.28); color: #f9a8d4; border: 1px solid #ec4899; }
     .tag-bomb { background: rgba(249, 115, 22, 0.25); color: #fdba74; }
     .tag-plague { background: rgba(132, 204, 22, 0.25); color: #bef264; }
 
@@ -782,6 +799,7 @@
       justify-content: space-between;
       flex-wrap: wrap;
       gap: 8px;
+      flex-shrink: 0;
     }
 
     .swatch-row {
@@ -843,6 +861,16 @@
       font-size: 11px;
       cursor: pointer;
     }
+    .btn-gold {
+      background: var(--warning);
+      color: #111318;
+      border: none;
+      padding: 6px 11px;
+      border-radius: 6px;
+      font-weight: 800;
+      font-size: 11px;
+      cursor: pointer;
+    }
     .full-width { width: 100%; }
 
     .btn-tool, .btn-mini {
@@ -860,67 +888,95 @@
       color: #a5b4fc;
     }
 
-    /* Right Chat Column */
+    /* ========================================================================
+       FIXED-HEIGHT SCROLLABLE CHAT LEDGER TABLE (NEVER EXPANDS PAGE DOWN)
+       ======================================================================== */
     .sidebar-right {
       background: var(--bg-panel);
       border-left: 1px solid var(--border);
-      display: flex;
-      flex-direction: column;
-      height: 100%;
+      display: grid;
+      grid-template-rows: 38px 1fr 52px;
+      height: calc(100vh - 52px);
+      max-height: calc(100vh - 52px);
+      min-height: 0;
+      overflow: hidden;
     }
 
     .chat-header {
-      padding: 10px 12px;
+      padding: 0 12px;
       border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
     }
 
-    .chat-feed {
-      flex: 1;
-      padding: 10px 12px;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-      gap: 7px;
+    .chat-table-container {
+      height: 100%;
+      max-height: 100%;
+      min-height: 0;
+      overflow-y: scroll;
+      overflow-x: hidden;
+      background: var(--bg-deep);
+    }
+
+    .chat-ledger-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
       font-size: 12px;
     }
 
-    .chat-line {
+    .chat-ledger-table tr {
+      border-bottom: 1px solid rgba(46, 52, 68, 0.55);
+    }
+
+    .chat-ledger-table td {
+      padding: 6px 8px;
+      vertical-align: top;
       line-height: 1.35;
       word-break: break-word;
     }
-    .chat-line.correct {
+
+    .chat-ledger-table td.col-sender {
+      width: 96px;
+      font-weight: 700;
+      color: #c7d2fe;
+      border-right: 1px solid rgba(46, 52, 68, 0.55);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .chat-ledger-table td.col-msg {
+      color: var(--text-main);
+    }
+
+    .chat-row.correct td {
       background: rgba(16, 185, 129, 0.14);
       color: var(--success);
-      padding: 5px 8px;
-      border-radius: 5px;
       font-weight: 600;
     }
-    .chat-line.mafia-chat {
+    .chat-row.mafia-chat td {
       background: rgba(239, 68, 68, 0.18);
-      border-left: 3px solid var(--danger);
       color: #fecaca;
-      padding: 5px 8px;
-      border-radius: 4px;
       font-weight: 600;
     }
-    .chat-line.dead-chat {
+    .chat-row.seance-chat td {
+      background: rgba(168, 85, 247, 0.2);
+      color: #e9d5ff;
+      font-weight: 600;
+    }
+    .chat-row.dead-chat td {
       background: rgba(148, 163, 184, 0.12);
-      border-left: 3px solid #64748b;
       color: #cbd5e1;
-      padding: 4px 8px;
-      border-radius: 4px;
       font-style: italic;
     }
-    .chat-line.will-reveal {
+    .chat-row.will-reveal td {
       background: rgba(245, 158, 11, 0.14);
-      border-left: 3px solid var(--warning);
       color: #fde68a;
-      padding: 6px 8px;
-      border-radius: 4px;
       font-family: monospace;
       font-size: 11px;
     }
-    .chat-line.system {
+    .chat-row.system td {
       color: var(--text-dim);
       font-style: italic;
     }
@@ -928,6 +984,9 @@
     .chat-bar {
       padding: 8px;
       border-top: 1px solid var(--border);
+      background: var(--bg-panel);
+      display: flex;
+      align-items: center;
     }
 
     .chat-bar input {
@@ -945,32 +1004,40 @@
     @media (max-width: 980px) {
       body {
         height: auto;
-        min-height: 100vh;
+        max-height: none;
+        grid-template-rows: auto 1fr;
         overflow-y: auto;
+      }
+      .topbar {
+        height: auto;
+        padding: 8px 12px;
       }
       .workspace {
         grid-template-columns: 1fr;
         height: auto;
+        max-height: none;
         overflow: visible;
       }
       .center-stage {
         order: 1;
-        min-height: 520px;
+        height: 500px;
       }
       .salem-split-body {
         grid-template-columns: 1fr;
       }
       .salem-graveyard {
-        max-height: 150px;
+        max-height: 140px;
       }
       .sidebar-right {
         order: 2;
-        height: 250px;
+        height: 260px;
+        max-height: 260px;
         border-left: none;
         border-top: 1px solid var(--border);
       }
       .sidebar-left {
         order: 3;
+        height: auto;
         border-right: none;
         border-top: 1px solid var(--border);
       }
@@ -1025,7 +1092,7 @@
       <button type="button" class="mode-tab" data-mode="gartic">Gartic Chain</button>
       <button type="button" class="mode-tab" data-mode="hangman">Team Hangman</button>
       <button type="button" class="mode-tab" data-mode="snake">3D Snake.io</button>
-      <button type="button" class="mode-tab" data-mode="shadow">Shadow Fight</button>
+      <button type="button" class="mode-tab" data-mode="shadow">Shadow Fight (1v1 Bracket)</button>
       <button type="button" class="mode-tab" data-mode="salem">Village of Salem</button>
     </nav>
 
@@ -1094,12 +1161,11 @@
             <option value="0">0 Bots (Off)</option>
             <option value="1">1 AI Bot</option>
             <option value="2">2 AI Bots</option>
-            <option value="3">3 AI Bots</option>
+            <option value="3">3 AI Bots (4p Bracket)</option>
             <option value="4">4 AI Bots</option>
-            <option value="5">5 AI Bots</option>
-            <option value="6" selected>6 AI Bots (Salem Standard)</option>
+            <option value="6" selected>6 AI Bots (Salem / 8p)</option>
             <option value="8">8 AI Bots (Full Town)</option>
-            <option value="10">10 AI Bots (Chaos Town)</option>
+            <option value="10">10 AI Bots (Grand Town)</option>
           </select>
         </div>
 
@@ -1161,18 +1227,19 @@
           </div>
         </div>
 
-        <!-- VILLAGE OF SALEM (TOWN GRID + LIVE GRAVEYARD & WILL INSPECTOR) -->
+        <!-- VILLAGE OF SALEM (MEDIUM SEANCE + NEW ROLES + GRAVEYARD) -->
         <div id="salemPanel" class="stage-overlay hidden">
           <div class="gartic-box">
             <div class="salem-header">
               <div>
                 <h3 id="salemPhaseTitle">Village of Salem — Waiting to Start</h3>
                 <p id="salemInstruction" style="font-size:11px;color:var(--text-dim);">
-                  Mafia can whisper in private Night Chat. Fallen roles &amp; Last Wills appear in the Graveyard.
+                  Medium channels Dead Chat every 3rd Night. Mayor can reveal for 3x vote power!
                 </p>
               </div>
               <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                 <span id="salemMyRoleBadge" class="salem-role-badge role-Villager">Role: Villager</span>
+                <button type="button" id="btnMayorReveal" class="btn-gold hidden">🎖️ Reveal as Mayor (3x Vote)</button>
                 <button type="button" id="btnBomberDetonate" class="btn-danger hidden">💥 Detonate All Bombs</button>
                 <button type="button" id="btnSalemSkipVote" class="btn-tool hidden">Skip Vote</button>
               </div>
@@ -1206,7 +1273,7 @@
           </div>
         </div>
 
-        <!-- ON-SCREEN MOBILE / TOUCH CONTROLS OVERLAY (For Snake.io & Shadow Fight) -->
+        <!-- ON-SCREEN MOBILE / TOUCH CONTROLS OVERLAY -->
         <div id="mobileControlsOverlay" class="mobile-overlay hidden">
           <div class="joystick-zone" id="joystickZone">
             <div class="joystick-base" id="joystickBase">
@@ -1218,10 +1285,10 @@
             <button type="button" id="btnTouchBoost" class="touch-btn boost-btn hidden">BOOST</button>
 
             <div id="shadowTouchCluster" class="shadow-cluster hidden">
-              <button type="button" class="touch-btn atk-punch" data-action="punch">PUNCH</button>
+              <button type="button" class="touch-btn atk-punch" data-action="punch">JAB</button>
               <button type="button" class="touch-btn atk-kick" data-action="kick">KICK</button>
               <button type="button" class="touch-btn atk-slash" data-action="slash">KATANA</button>
-              <button type="button" class="touch-btn atk-block" data-action="block">BLOCK</button>
+              <button type="button" class="touch-btn atk-block" data-action="block">GUARD</button>
               <button type="button" class="touch-btn atk-jump" data-action="jump">JUMP</button>
             </div>
           </div>
@@ -1242,10 +1309,14 @@
       </div>
     </section>
 
-    <!-- RIGHT SIDEBAR: LIVE GUESSES & CHAT -->
+    <!-- RIGHT SIDEBAR: FIXED SCROLLABLE CHAT TABLE -->
     <aside class="sidebar-right">
-      <div class="panel-header chat-header" id="chatHeaderTitle">Live Guesses &amp; Town Chat</div>
-      <div id="chatMessages" class="chat-feed"></div>
+      <div class="panel-header chat-header" id="chatHeaderTitle">Live Guesses &amp; Town Ledger</div>
+      <div class="chat-table-container" id="chatScrollBox">
+        <table class="chat-ledger-table">
+          <tbody id="chatMessages"></tbody>
+        </table>
+      </div>
       <form id="chatForm" class="chat-bar" autocomplete="off">
         <input type="text" id="chatInput" placeholder="Type a guess, claim, or suspicion..." />
       </form>
