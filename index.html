@@ -129,6 +129,11 @@
       border-color: var(--accent);
     }
 
+    .text-input:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
     .color-picker {
       width: 100%;
       height: 36px;
@@ -570,27 +575,28 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 14px;
+      padding: 12px;
       z-index: 40;
     }
 
     .gartic-box {
       width: 100%;
-      max-width: 760px;
-      max-height: 96%;
+      max-width: 880px;
+      height: 100%;
+      max-height: 98%;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 8px;
       overflow: hidden;
     }
 
     .gartic-prompt-banner {
       background: var(--bg-card);
       border-left: 3px solid var(--accent);
-      padding: 8px 12px;
+      padding: 7px 12px;
       border-radius: 4px;
-      font-size: 13px;
-      line-height: 1.4;
+      font-size: 12px;
+      line-height: 1.35;
     }
 
     .gartic-input-group {
@@ -629,16 +635,16 @@
       background: var(--bg-panel);
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 10px 14px;
-      gap: 10px;
+      padding: 8px 12px;
+      gap: 8px;
       flex-wrap: wrap;
     }
 
     .salem-role-badge {
-      padding: 5px 11px;
+      padding: 4px 10px;
       border-radius: 6px;
       font-weight: 800;
-      font-size: 12px;
+      font-size: 11px;
       letter-spacing: 0.4px;
     }
     .role-Godfather, .role-Killer { background: rgba(239, 68, 68, 0.22); color: #fca5a5; border: 1px solid #ef4444; }
@@ -656,32 +662,83 @@
       align-items: center;
       background: var(--bg-panel);
       border: 1px solid var(--border);
-      padding: 7px 10px;
+      padding: 6px 10px;
       border-radius: 8px;
+    }
+
+    /* Split Layout: Town Grid (Left) + Live Graveyard (Right) */
+    .salem-split-body {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 235px;
+      gap: 10px;
+      overflow: hidden;
+      min-height: 0;
     }
 
     .salem-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(135px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+      grid-auto-rows: max-content;
       gap: 8px;
       overflow-y: auto;
       padding: 2px;
+    }
+
+    .salem-graveyard {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      overflow-y: auto;
+    }
+
+    .grave-entry {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--danger);
+      border-radius: 6px;
+      padding: 6px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      font-size: 11px;
+    }
+
+    .grave-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 700;
+    }
+
+    .grave-will {
+      font-family: monospace;
+      font-size: 10px;
+      color: #fde68a;
+      background: rgba(15, 17, 22, 0.65);
+      padding: 4px 6px;
+      border-radius: 4px;
+      word-break: break-word;
     }
 
     .salem-card {
       background: var(--bg-panel);
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 10px;
+      padding: 9px;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
       text-align: center;
       transition: border-color 0.15s;
     }
     .salem-card.dead {
-      opacity: 0.45;
+      opacity: 0.42;
       filter: grayscale(0.85);
     }
     .salem-card.selected-target {
@@ -693,7 +750,7 @@
       font-size: 11px;
       color: var(--warning);
       font-weight: 700;
-      min-height: 15px;
+      min-height: 14px;
     }
 
     .salem-tag-row {
@@ -701,7 +758,7 @@
       gap: 4px;
       flex-wrap: wrap;
       justify-content: center;
-      min-height: 16px;
+      min-height: 15px;
     }
 
     .mini-tag {
@@ -710,6 +767,7 @@
       padding: 1px 5px;
       border-radius: 4px;
     }
+    .tag-mafia { background: rgba(239, 68, 68, 0.28); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.6); }
     .tag-bomb { background: rgba(249, 115, 22, 0.25); color: #fdba74; }
     .tag-plague { background: rgba(132, 204, 22, 0.25); color: #bef264; }
 
@@ -837,6 +895,22 @@
       border-radius: 5px;
       font-weight: 600;
     }
+    .chat-line.mafia-chat {
+      background: rgba(239, 68, 68, 0.18);
+      border-left: 3px solid var(--danger);
+      color: #fecaca;
+      padding: 5px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+    .chat-line.dead-chat {
+      background: rgba(148, 163, 184, 0.12);
+      border-left: 3px solid #64748b;
+      color: #cbd5e1;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-style: italic;
+    }
     .chat-line.will-reveal {
       background: rgba(245, 158, 11, 0.14);
       border-left: 3px solid var(--warning);
@@ -881,7 +955,13 @@
       }
       .center-stage {
         order: 1;
-        min-height: 460px;
+        min-height: 520px;
+      }
+      .salem-split-body {
+        grid-template-columns: 1fr;
+      }
+      .salem-graveyard {
+        max-height: 150px;
       }
       .sidebar-right {
         order: 2;
@@ -1081,14 +1161,14 @@
           </div>
         </div>
 
-        <!-- VILLAGE OF SALEM (EXPANDED ROLES + LAST WILL + AI DEDUCTION) -->
+        <!-- VILLAGE OF SALEM (TOWN GRID + LIVE GRAVEYARD & WILL INSPECTOR) -->
         <div id="salemPanel" class="stage-overlay hidden">
           <div class="gartic-box">
             <div class="salem-header">
               <div>
                 <h3 id="salemPhaseTitle">Village of Salem — Waiting to Start</h3>
-                <p id="salemInstruction" style="font-size:12px;color:var(--text-dim);">
-                  Roles: Godfather, Killer, Vigilante, Doctor, Sheriff, Jester, Werewolf, Bomber, Plague Doctor.
+                <p id="salemInstruction" style="font-size:11px;color:var(--text-dim);">
+                  Mafia can whisper in private Night Chat. Fallen roles &amp; Last Wills appear in the Graveyard.
                 </p>
               </div>
               <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
@@ -1101,7 +1181,7 @@
             <!-- LAST WILL EDITOR BAR -->
             <div class="salem-will-bar">
               <span style="font-size:11px;font-weight:700;color:var(--warning);white-space:nowrap;">📜 Last Will:</span>
-              <input type="text" id="salemWillInput" class="text-input" style="padding:6px 10px;font-size:12px;" placeholder="Write your night logs &amp; suspects here (revealed upon your death)..." maxlength="140" />
+              <input type="text" id="salemWillInput" class="text-input" style="padding:5px 10px;font-size:12px;" placeholder="Write your night logs &amp; suspects here (auto-saved into the Graveyard if you fall)..." maxlength="140" />
               <button type="button" id="btnSaveWill" class="btn-tool accent">Save Will</button>
             </div>
 
@@ -1109,7 +1189,20 @@
               Town Square is quiet. Press Start / Apply Rules to deal secret roles and launch Night 1.
             </div>
 
-            <div id="salemTownGrid" class="salem-grid"></div>
+            <!-- SPLIT BODY: TOWN GRID + GRAVEYARD ROLE LIST -->
+            <div class="salem-split-body">
+              <div id="salemTownGrid" class="salem-grid"></div>
+
+              <div class="salem-graveyard">
+                <div class="panel-header">
+                  <span>⚰️ Graveyard &amp; Wills</span>
+                  <span id="graveCountBadge" style="font-size:10px;color:var(--text-dim);">0 Fallen</span>
+                </div>
+                <div id="salemGraveyardList" style="display:flex;flex-direction:column;gap:6px;">
+                  <div style="font-size:11px;color:var(--text-dim);font-style:italic;">No casualties yet.</div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1151,7 +1244,7 @@
 
     <!-- RIGHT SIDEBAR: LIVE GUESSES & CHAT -->
     <aside class="sidebar-right">
-      <div class="panel-header chat-header">Live Guesses &amp; Town Chat</div>
+      <div class="panel-header chat-header" id="chatHeaderTitle">Live Guesses &amp; Town Chat</div>
       <div id="chatMessages" class="chat-feed"></div>
       <form id="chatForm" class="chat-bar" autocomplete="off">
         <input type="text" id="chatInput" placeholder="Type a guess, claim, or suspicion..." />
