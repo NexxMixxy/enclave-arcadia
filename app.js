@@ -1,6 +1,6 @@
 // ============================================================================
 // ENCLAVE ARCADE — LIVE MULTIPLAYER CLIENT (app.js)
-// Supports Host Lock, Parallel Colony AI, 3D Snake.io, Shadow Fight & Mobile
+// Includes 3200x3200 Camera + Mini-Map Snake.io & Village of Salem (Mafia)
 // ============================================================================
 
 const RENDER_SERVER_URL = "https://enclave-arcade-live.onrender.com";
@@ -23,7 +23,8 @@ const state = {
   drawing: false,
   brushColor: "#000000",
   brushSize: 6,
-  canDraw: false
+  canDraw: false,
+  salemTarget: ""
 };
 
 // ============================================================================
@@ -183,7 +184,7 @@ function handleServerPacket(msg) {
 
     case "snakeTick":
       if (state.mode === "snake") {
-        render3DSnakeArena(msg.snakes, msg.orbs);
+        render3DSnakeArena(msg.snakes, msg.orbs, msg.worldW || 3200, msg.worldH || 3200);
       }
       break;
 
@@ -192,11 +193,17 @@ function handleServerPacket(msg) {
         renderShadowFightArena(msg.fighters, msg.effects);
       }
       break;
+
+    case "salemState":
+      if (state.mode === "salem") {
+        renderSalemState(msg);
+      }
+      break;
   }
 }
 
 // ============================================================================
-// 3. HOST LOCKING & MODE SWITCHING (Prevents layering/desync)
+// 3. HOST LOCKING & MODE SWITCHING
 // ============================================================================
 function updateHostPermissionsUI() {
   const hostBadge = document.getElementById("hostBadge");
@@ -239,24 +246,27 @@ function applyModeUI(newMode, settings) {
     if (settings.aiTier) document.getElementById("setAiTier").value = settings.aiTier;
   }
 
-  const isActionMode = newMode === "snake" || newMode === "shadow";
+  const hideToolbar = newMode === "snake" || newMode === "shadow" || newMode === "salem";
   document.getElementById("hudHangmanBox").classList.toggle("hidden", newMode !== "hangman");
   document.getElementById("btnSwitchTeam").classList.toggle("hidden", newMode !== "hangman");
-  document.getElementById("drawToolbar").classList.toggle("hidden", isActionMode);
+  document.getElementById("drawToolbar").classList.toggle("hidden", hideToolbar);
   document.getElementById("garticPanel").classList.toggle("hidden", newMode !== "gartic");
+  document.getElementById("salemPanel").classList.toggle("hidden", newMode !== "salem");
   document.getElementById("btnSubmitDrawing").classList.toggle("hidden", newMode !== "gartic");
 
-  // Clear old frames cleanly so Snake or Shadow Fight never gets stuck on the board
   clearCanvasBoard(false);
 
   if (newMode === "snake") {
     document.getElementById("hudWordMask").textContent = "3D SNAKE.IO";
-    document.getElementById("hudRole").textContent = "Slither, eat glowing orbs, and cut off rivals!";
+    document.getElementById("hudRole").textContent = "3200x3200 Arena — Check the top-right Mini-Map!";
     document.getElementById("hudTimer").textContent = "ENDLESS";
   } else if (newMode === "shadow") {
     document.getElementById("hudWordMask").textContent = "SHADOW FIGHT";
     document.getElementById("hudRole").textContent = "PC: WASD + J(Punch) K(Kick) L(Katana) Space(Block)";
     document.getElementById("hudTimer").textContent = "DOJO";
+  } else if (newMode === "salem") {
+    document.getElementById("hudWordMask").textContent = "VILLAGE OF SALEM";
+    document.getElementById("hudRole").textContent = "Deduce the Serial Killer before the Town falls!";
   }
 
   updateMobileControlsUI();
@@ -291,7 +301,7 @@ document.getElementById("btnSwitchTeam").onclick = () => {
 };
 
 // ============================================================================
-// 4. CANVAS DRAWING & PNG SAVING (PC Mouse + Mobile Touch)
+// 4. CANVAS DRAWING & PNG SAVING
 // ============================================================================
 const canvas = document.getElementById("arcadeCanvas");
 const ctx = canvas.getContext("2d");
@@ -326,7 +336,7 @@ function getCanvasPoint(e) {
 }
 
 canvas.addEventListener("pointerdown", (e) => {
-  if (state.mode === "snake" || state.mode === "shadow") return;
+  if (state.mode !== "skribbl" && state.mode !== "hangman" && state.mode !== "gartic") return;
   if (!state.canDraw) return;
   state.drawing = true;
   prevPt = getCanvasPoint(e);
@@ -335,14 +345,15 @@ canvas.addEventListener("pointerdown", (e) => {
 canvas.addEventListener("pointermove", (e) => {
   const pt = getCanvasPoint(e);
 
-  // In Snake.io on PC, steering follows mouse cursor smoothly
+  // In 3200x3200 Snake.io, player head is always centered at (480, 270) on screen
   if (state.mode === "snake" && !state.mobileControls) {
     const angle = Math.atan2(pt.y - 270, pt.x - 480);
     sendPacket("snakeInput", { angle });
     return;
   }
 
-  if (!state.drawing || state.mode === "snake" || state.mode === "shadow" || !state.canDraw) return;
+  if (!state.drawing || !state.canDraw) return;
+  if (state.mode !== "skribbl" && state.mode !== "hangman" && state.mode !== "gartic") return;
   drawSegment(prevPt.x, prevPt.y, pt.x, pt.y, state.brushColor, state.brushSize, true);
   prevPt = pt;
 });
@@ -388,111 +399,250 @@ document.getElementById("btnDownloadPng").onclick = () => {
 };
 
 // ============================================================================
-// 5. 3D SNAKE.IO RENDERER (Volumetric Spheres, Drop Shadows, Loot Orbs)
+// 5. 3200x3200 CAMERA SNAKE.IO RENDERER + SECTOR MINI-MAP (NO SCREEN BLOAT)
 // ============================================================================
-function render3DSnakeArena(snakes, orbs) {
-  // Deep 3D perspective floor gradient
-  const bgGrad = ctx.createRadialGradient(480, 270, 60, 480, 270, 560);
-  bgGrad.addColorStop(0, "#181d2c");
-  bgGrad.addColorStop(1, "#0b0d14");
-  ctx.fillStyle = bgGrad;
+function render3DSnakeArena(snakes, orbs, worldW, worldH) {
+  ctx.fillStyle = "#0b0d14";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // Subtle isometric-style 3D hex/grid floor lines
-  ctx.strokeStyle = "rgba(99, 102, 241, 0.12)";
+  // Locate local player's snake head for camera tracking
+  const mySnake = snakes.find(s => s.username.toLowerCase() === state.me.username.toLowerCase()) || snakes[0];
+  const camX = mySnake && mySnake.body.length > 0 ? mySnake.body[0][0] : worldW / 2;
+  const camY = mySnake && mySnake.body.length > 0 ? mySnake.body[0][1] : worldH / 2;
+
+  ctx.save();
+  // Fixed 1:1 camera zoom centered on your snake head
+  ctx.translate(canvas.width / 2 - camX, canvas.height / 2 - camY);
+
+  // World Floor & Border
+  ctx.fillStyle = "#121624";
+  ctx.fillRect(0, 0, worldW, worldH);
+
+  ctx.strokeStyle = "rgba(99, 102, 241, 0.14)";
   ctx.lineWidth = 1;
-  for (let x = 0; x < canvas.width; x += 48) {
+  const startGridX = Math.floor((camX - 550) / 80) * 80;
+  const endGridX = Math.min(worldW, camX + 550);
+  const startGridY = Math.floor((camY - 350) / 80) * 80;
+  const endGridY = Math.min(worldH, camY + 350);
+
+  for (let x = Math.max(0, startGridX); x <= endGridX; x += 80) {
     ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, canvas.height);
+    ctx.moveTo(x, Math.max(0, startGridY));
+    ctx.lineTo(x, endGridY);
     ctx.stroke();
   }
-  for (let y = 0; y < canvas.height; y += 48) {
+  for (let y = Math.max(0, startGridY); y <= endGridY; y += 80) {
     ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(canvas.width, y);
+    ctx.moveTo(Math.max(0, startGridX), y);
+    ctx.lineTo(endGridX, y);
     ctx.stroke();
   }
 
-  // Render glowing energy orbs & dead-snake mass drops
+  // Danger Laser Arena Boundary
+  ctx.strokeStyle = "#ef4444";
+  ctx.lineWidth = 6;
+  ctx.strokeRect(0, 0, worldW, worldH);
+
+  // Render Orbs inside camera view
   orbs.forEach(o => {
-    const r = o.radius || 6;
-    ctx.save();
-    ctx.shadowColor = o.color || "#f59e0b";
-    ctx.shadowBlur = o.loot ? 16 : 9;
+    if (Math.abs(o.x - camX) > 540 || Math.abs(o.y - camY) > 330) return;
+    const r = o.r || 6;
     const orbGrad = ctx.createRadialGradient(o.x - r * 0.3, o.y - r * 0.3, 1, o.x, o.y, r);
     orbGrad.addColorStop(0, "#ffffff");
-    orbGrad.addColorStop(0.4, o.color || "#fbbf24");
-    orbGrad.addColorStop(1, "#92400e");
+    orbGrad.addColorStop(0.45, o.c || "#fbbf24");
+    orbGrad.addColorStop(1, "#78350f");
     ctx.fillStyle = orbGrad;
     ctx.beginPath();
     ctx.arc(o.x, o.y, r, 0, Math.PI * 2);
     ctx.fill();
-    ctx.restore();
   });
 
-  // Render each snake with 3D cylindrical/spherical shading from tail to head
+  // Render Snakes (Capped radius so large snakes never bloat the screen)
   snakes.forEach(s => {
     if (!s.body || s.body.length === 0) return;
-    const baseRadius = Math.min(18, 9 + Math.floor(s.body.length / 10));
+    const baseRadius = Math.min(15, 9.5 + Math.min(5.5, (s.mass || 60) / 180));
 
-    // 1. Floor drop shadow for 3D elevation
+    // 1. 3D Floor Shadow
     ctx.fillStyle = "rgba(0, 0, 0, 0.42)";
     for (let i = s.body.length - 1; i >= 0; i--) {
-      const seg = s.body[i];
+      const [sx, sy] = s.body[i];
+      if (Math.abs(sx - camX) > 560 || Math.abs(sy - camY) > 350) continue;
       ctx.beginPath();
-      ctx.arc(seg.x + 4, seg.y + 7, baseRadius * 0.92, 0, Math.PI * 2);
+      ctx.arc(sx + 4, sy + 6, baseRadius * 0.9, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // 2. 3D lit body spheres
+    // 2. 3D Lit Spheres
     for (let i = s.body.length - 1; i >= 0; i--) {
-      const seg = s.body[i];
-      const r = i === 0 ? baseRadius * 1.12 : baseRadius * (0.78 + 0.22 * (1 - i / s.body.length));
-      const grad = ctx.createRadialGradient(seg.x - r * 0.35, seg.y - r * 0.35, r * 0.1, seg.x, seg.y, r);
+      const [sx, sy] = s.body[i];
+      if (Math.abs(sx - camX) > 560 || Math.abs(sy - camY) > 350) continue;
+      const r = i === 0 ? baseRadius * 1.1 : baseRadius * (0.82 + 0.18 * (1 - i / s.body.length));
+      const grad = ctx.createRadialGradient(sx - r * 0.35, sy - r * 0.35, 1, sx, sy, r);
       grad.addColorStop(0, "#ffffff");
-      grad.addColorStop(0.28, s.color || "#6366f1");
+      grad.addColorStop(0.3, s.color || "#6366f1");
       grad.addColorStop(1, "#111827");
-
       ctx.fillStyle = grad;
       ctx.beginPath();
-      ctx.arc(seg.x, seg.y, r, 0, Math.PI * 2);
+      ctx.arc(sx, sy, r, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // 3. Directional Eyes & Nameplate on Head
-    const head = s.body[0];
-    const ang = s.angle || 0;
-    const eyeOffset = baseRadius * 0.55;
-    const lx = head.x + Math.cos(ang - 0.55) * eyeOffset;
-    const ly = head.y + Math.sin(ang - 0.55) * eyeOffset;
-    const rx = head.x + Math.cos(ang + 0.55) * eyeOffset;
-    const ry = head.y + Math.sin(ang + 0.55) * eyeOffset;
+    // 3. Head Eyes & Mass Tag
+    const [hx, hy] = s.body[0];
+    if (Math.abs(hx - camX) <= 560 && Math.abs(hy - camY) <= 350) {
+      const ang = s.angle || 0;
+      const eyeDist = baseRadius * 0.55;
+      const lx = hx + Math.cos(ang - 0.55) * eyeDist;
+      const ly = hy + Math.sin(ang - 0.55) * eyeDist;
+      const rx = hx + Math.cos(ang + 0.55) * eyeDist;
+      const ry = hy + Math.sin(ang + 0.55) * eyeDist;
 
-    ctx.fillStyle = "#ffffff";
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.arc(lx, ly, 3.3, 0, Math.PI * 2);
+      ctx.arc(rx, ry, 3.3, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "700 12px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(`${s.username} (${s.mass || 60})`, hx, hy - baseRadius - 8);
+    }
+  });
+
+  ctx.restore();
+
+  // ==========================================================================
+  // TOP-RIGHT SECTOR MINI-MAP & LIVE MASS HUD
+  // ==========================================================================
+  const mapSize = 136;
+  const mapX = canvas.width - mapSize - 14;
+  const mapY = 14;
+
+  ctx.fillStyle = "rgba(15, 17, 22, 0.84)";
+  ctx.strokeStyle = "rgba(99, 102, 241, 0.6)";
+  ctx.lineWidth = 2;
+  ctx.fillRect(mapX, mapY, mapSize, mapSize);
+  ctx.strokeRect(mapX, mapY, mapSize, mapSize);
+
+  // 4x4 Sector Grid Lines on Mini-Map
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
+  ctx.lineWidth = 1;
+  for (let i = 1; i < 4; i++) {
+    const step = (mapSize / 4) * i;
     ctx.beginPath();
-    ctx.arc(lx, ly, 3.6, 0, Math.PI * 2);
-    ctx.arc(rx, ry, 3.6, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.moveTo(mapX + step, mapY);
+    ctx.lineTo(mapX + step, mapY + mapSize);
+    ctx.moveTo(mapX, mapY + step);
+    ctx.lineTo(mapX + mapSize, mapY + step);
+    ctx.stroke();
+  }
 
-    ctx.fillStyle = "#000000";
+  // Current Camera Viewport Box inside Mini-Map
+  const vw = (canvas.width / worldW) * mapSize;
+  const vh = (canvas.height / worldH) * mapSize;
+  const vx = mapX + ((camX - canvas.width / 2) / worldW) * mapSize;
+  const vy = mapY + ((camY - canvas.height / 2) / worldH) * mapSize;
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.55)";
+  ctx.strokeRect(vx, vy, vw, vh);
+
+  // Plot all snakes on the Mini-Map
+  snakes.forEach(s => {
+    if (!s.body || s.body.length === 0) return;
+    const [hx, hy] = s.body[0];
+    const mx = mapX + (hx / worldW) * mapSize;
+    const my = mapY + (hy / worldH) * mapSize;
+    const isMe = mySnake && s.username === mySnake.username;
+
+    ctx.fillStyle = isMe ? "#ffffff" : (s.color || "#6366f1");
     ctx.beginPath();
-    ctx.arc(lx + Math.cos(ang) * 1.3, ly + Math.sin(ang) * 1.3, 1.8, 0, Math.PI * 2);
-    ctx.arc(rx + Math.cos(ang) * 1.3, ry + Math.sin(ang) * 1.3, 1.8, 0, Math.PI * 2);
+    ctx.arc(mx, my, isMe ? 4 : 2.8, 0, Math.PI * 2);
     ctx.fill();
+  });
 
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "700 12px sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText(`${s.username} (${s.body.length})`, head.x, head.y - baseRadius - 8);
+  // Compute Sector Label (A1 - D4)
+  const colChar = ["A", "B", "C", "D"][Math.min(3, Math.floor((camX / worldW) * 4))];
+  const rowNum = Math.min(4, Math.floor((camY / worldH) * 4) + 1);
+  ctx.fillStyle = "#e5e7eb";
+  ctx.font = "700 11px sans-serif";
+  ctx.textAlign = "left";
+  ctx.fillText(`SECTOR ${colChar}${rowNum}`, mapX + 6, mapY + mapSize - 6);
+}
+
+// ============================================================================
+// 6. VILLAGE OF SALEM (MAFIA) UI RENDERER
+// ============================================================================
+function renderSalemState(msg) {
+  const panel = document.getElementById("salemPanel");
+  panel.classList.remove("hidden");
+
+  document.getElementById("salemPhaseTitle").textContent =
+    `Day ${msg.day} — ${msg.phase.toUpperCase()} PHASE`;
+  document.getElementById("salemInstruction").textContent = msg.instruction || "";
+  document.getElementById("salemReportBanner").textContent = msg.report || "";
+
+  const badge = document.getElementById("salemMyRoleBadge");
+  badge.textContent = `Your Role: ${msg.myRole}`;
+  badge.className = `salem-role-badge role-${msg.myRole}`;
+
+  const skipBtn = document.getElementById("btnSalemSkipVote");
+  skipBtn.classList.toggle("hidden", msg.phase !== "voting" || !msg.amAlive);
+  skipBtn.onclick = () => {
+    state.salemTarget = "SKIP";
+    sendPacket("salemAction", { target: "SKIP" });
+  };
+
+  const grid = document.getElementById("salemTownGrid");
+  grid.innerHTML = "";
+
+  (msg.town || []).forEach(p => {
+    const card = document.createElement("div");
+    card.className = "salem-card" +
+      (!p.alive ? " dead" : "") +
+      (state.salemTarget === p.username ? " selected-target" : "");
+
+    const roleInfo = !p.alive
+      ? `<span style="font-size:11px;color:#fca5a5;">💀 ${p.revealedRole || "Fallen"}</span>`
+      : `<span style="font-size:11px;color:var(--text-dim);">Alive</span>`;
+
+    const voteCount = msg.votes && msg.votes[p.username]
+      ? `${msg.votes[p.username]} Vote(s)`
+      : "";
+
+    card.innerHTML = `
+      <div class="avatar-circle" style="background:${p.color || "#6366f1"};width:34px;height:34px;font-size:14px;">
+        ${p.username.charAt(0).toUpperCase()}
+      </div>
+      <div style="font-weight:700;font-size:13px;">${p.username}</div>
+      ${roleInfo}
+      <div class="salem-votes">${voteCount}</div>
+    `;
+
+    // Show interactive button during Night (for special roles) or Voting
+    if (msg.amAlive && p.alive && msg.canAct) {
+      const canTargetSelf = msg.myRole === "Doctor" && msg.phase === "night";
+      if (p.username !== state.me.username || canTargetSelf) {
+        const btn = document.createElement("button");
+        btn.className = "btn-primary full-width";
+        btn.textContent = msg.actionLabel || "Select";
+        btn.onclick = () => {
+          state.salemTarget = p.username;
+          sendPacket("salemAction", { target: p.username });
+          document.querySelectorAll(".salem-card").forEach(c => c.classList.remove("selected-target"));
+          card.classList.add("selected-target");
+        };
+        card.appendChild(btn);
+      }
+    }
+
+    grid.appendChild(card);
   });
 }
 
 // ============================================================================
-// 6. STICKMAN SHADOW FIGHT RENDERER (Dojo Sunset + Articulated Martial Arts)
+// 7. STICKMAN SHADOW FIGHT RENDERER
 // ============================================================================
 function renderShadowFightArena(fighters, effects = []) {
-  // Sunset Crimson/Gold Dojo Sky
   const sky = ctx.createLinearGradient(0, 0, 0, 440);
   sky.addColorStop(0, "#1a091e");
   sky.addColorStop(0.45, "#6b1426");
@@ -501,19 +651,16 @@ function renderShadowFightArena(fighters, effects = []) {
   ctx.fillStyle = sky;
   ctx.fillRect(0, 0, canvas.width, 440);
 
-  // Glowing Sun Disc
   ctx.fillStyle = "rgba(254, 240, 138, 0.85)";
   ctx.beginPath();
   ctx.arc(480, 295, 95, 0, Math.PI * 2);
   ctx.fill();
 
-  // Silhouette Pagoda Pillars & Bamboo
   ctx.fillStyle = "#090a0f";
   ctx.fillRect(70, 80, 26, 360);
   ctx.fillRect(864, 80, 26, 360);
   ctx.fillRect(0, 440, canvas.width, 100);
 
-  // Tatami Floor Rim Highlight
   ctx.strokeStyle = "#f59e0b";
   ctx.lineWidth = 2;
   ctx.beginPath();
@@ -528,7 +675,6 @@ function renderShadowFightArena(fighters, effects = []) {
     const x = f.x;
     const y = f.y;
 
-    // Health Bar & Nameplate above fighter
     const barW = 74;
     ctx.fillStyle = "rgba(0,0,0,0.65)";
     ctx.fillRect(x - barW / 2, y - 122, barW, 8);
@@ -540,7 +686,6 @@ function renderShadowFightArena(fighters, effects = []) {
     ctx.textAlign = "center";
     ctx.fillText(f.username, x, y - 128);
 
-    // Stickman Joint Articulation
     ctx.save();
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
@@ -553,31 +698,22 @@ function renderShadowFightArena(fighters, effects = []) {
     const headX = shoulderX + dir * 2;
     const headY = shoulderY - 16;
 
-    // Flowing Colored Headband
     ctx.strokeStyle = f.color || "#ef4444";
     ctx.lineWidth = 4;
     ctx.beginPath();
     ctx.moveTo(headX - dir * 8, headY - 3);
-    ctx.quadraticCurveTo(
-      headX - dir * 24,
-      headY + Math.sin(now * 12) * 8,
-      headX - dir * 36,
-      headY + 6
-    );
+    ctx.quadraticCurveTo(headX - dir * 24, headY + Math.sin(now * 12) * 8, headX - dir * 36, headY + 6);
     ctx.stroke();
 
-    // Pure Shadow Body Silhouette
     ctx.strokeStyle = "#050608";
     ctx.fillStyle = "#050608";
     ctx.lineWidth = 7;
 
-    // Torso
     ctx.beginPath();
     ctx.moveTo(hipX, hipY);
     ctx.lineTo(shoulderX, shoulderY);
     ctx.stroke();
 
-    // Head + Glowing Eyes
     ctx.beginPath();
     ctx.arc(headX, headY, 11, 0, Math.PI * 2);
     ctx.fill();
@@ -587,7 +723,6 @@ function renderShadowFightArena(fighters, effects = []) {
     ctx.arc(headX + dir * 5, headY - 2, 2.3, 0, Math.PI * 2);
     ctx.fill();
 
-    // Legs (with High Kick Pose)
     ctx.strokeStyle = "#050608";
     ctx.beginPath();
     ctx.moveTo(hipX, hipY);
@@ -600,62 +735,49 @@ function renderShadowFightArena(fighters, effects = []) {
     }
     ctx.stroke();
 
-    // Arms & Shadow Katana Slash
     ctx.beginPath();
     ctx.moveTo(shoulderX, shoulderY);
     if (f.state === "punch") {
       ctx.lineTo(shoulderX + dir * 44, shoulderY - 2);
+      ctx.stroke();
     } else if (f.state === "block") {
       ctx.lineTo(shoulderX + dir * 16, shoulderY - 18);
+      ctx.stroke();
+      ctx.strokeStyle = "rgba(59, 130, 246, 0.75)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(x, y - 55, 42, 0, Math.PI * 2);
+      ctx.stroke();
     } else if (f.state === "slash") {
       const handX = shoulderX + dir * 34;
       const handY = shoulderY - 8;
       ctx.lineTo(handX, handY);
       ctx.stroke();
 
-      // Glowing Shadow Katana Blade & Arc
       ctx.strokeStyle = f.color || "#a855f7";
       ctx.lineWidth = 4;
       ctx.beginPath();
       ctx.moveTo(handX, handY);
       ctx.lineTo(handX + dir * 52, handY - 18);
       ctx.stroke();
-
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(shoulderX, shoulderY, 68, dir > 0 ? -0.7 : 2.3, dir > 0 ? 0.5 : 3.7);
-      ctx.stroke();
     } else {
       ctx.lineTo(shoulderX + dir * 18, shoulderY + 14);
       ctx.stroke();
     }
 
-    // Shield Aura when Blocking
-    if (f.state === "block") {
-      ctx.strokeStyle = "rgba(59, 130, 246, 0.75)";
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(x, y - 55, 42, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-
     ctx.restore();
   });
 
-  // Hit Sparks
   effects.forEach(ef => {
-    ctx.save();
     ctx.fillStyle = ef.color || "#fbbf24";
     ctx.beginPath();
     ctx.arc(ef.x, ef.y, 12, 0, Math.PI * 2);
     ctx.fill();
-    ctx.restore();
   });
 }
 
 // ============================================================================
-// 7. PC KEYBOARD & MOBILE TOUCH CONTROLS (Joystick + Action Buttons)
+// 8. PC KEYBOARD & MOBILE TOUCH CONTROLS
 // ============================================================================
 const btnToggleMobile = document.getElementById("btnToggleMobile");
 btnToggleMobile.onclick = () => {
@@ -673,7 +795,6 @@ function updateMobileControlsUI() {
   document.getElementById("shadowTouchCluster").classList.toggle("hidden", state.mode !== "shadow");
 }
 
-// Virtual Thumb Joystick Logic
 const joystickZone = document.getElementById("joystickZone");
 const joystickStick = document.getElementById("joystickStick");
 let joyActive = false;
@@ -713,7 +834,6 @@ function handleJoystickMove(e) {
   }
 }
 
-// Touch Action Buttons for Snake & Shadow Fight
 const btnTouchBoost = document.getElementById("btnTouchBoost");
 btnTouchBoost.addEventListener("pointerdown", () => sendPacket("snakeInput", { boost: true }));
 btnTouchBoost.addEventListener("pointerup", () => sendPacket("snakeInput", { boost: false }));
@@ -726,7 +846,6 @@ document.querySelectorAll("#shadowTouchCluster .touch-btn").forEach(btn => {
   });
 });
 
-// PC Keyboard Controls for Snake.io & Stickman Shadow Fight
 window.addEventListener("keydown", (e) => {
   if (document.activeElement === document.getElementById("chatInput") ||
       document.activeElement === document.getElementById("garticSentenceInput")) {
@@ -768,7 +887,7 @@ window.addEventListener("keyup", (e) => {
 });
 
 // ============================================================================
-// 8. GARTIC CHAIN, ROSTER & CHAT
+// 9. GARTIC CHAIN, ROSTER & CHAT
 // ============================================================================
 document.getElementById("btnGarticSubmitText").onclick = () => {
   const input = document.getElementById("garticSentenceInput");
