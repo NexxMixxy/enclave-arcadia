@@ -1,6 +1,7 @@
 // ============================================================================
 // ENCLAVE ARCADE — COMPLETE LIVE SERVER (server.js)
-// Includes Live Graveyard Role List, Private Mafia Night Chat & Ghost Chat
+// Includes Medium (Every-3-Nights Seance), Mayor, Executioner, Bodyguard,
+// Consigliere, and 2D 1v1 Tournament Bracket Stickman Shadow Fight
 // ============================================================================
 
 import http from 'node:http';
@@ -186,7 +187,7 @@ function parseWsFrames(buffer) {
 }
 
 // ============================================================================
-// 3. PARALLEL COLONY AI PROFILES (Up to 10 Distinct Bots per Tier)
+// 3. PARALLEL COLONY AI PROFILES
 // ============================================================================
 const AI_CATALOG = {
   easy: [
@@ -288,6 +289,7 @@ function getRoom(roomId) {
       snakes: new Map(),
       orbs: [],
       fighters: new Map(),
+      shadowBracket: null,
       effects: [],
       salem: null
     });
@@ -646,13 +648,16 @@ function startSnakeGame(room) {
 }
 
 // ============================================================================
-// 7. VILLAGE OF SALEM ENGINE (GRAVEYARD ROLE LIST + MAFIA & GHOST CHANNELS)
+// 7. VILLAGE OF SALEM ENGINE (MEDIUM SEANCE EVERY 3 NIGHTS + 14 ROLES)
 // ============================================================================
-const FAKE_CLAIM_ROLES = ['Sheriff', 'Doctor', 'Vigilante', 'Villager'];
+const FAKE_CLAIM_ROLES = ['Sheriff', 'Doctor', 'Medium', 'Bodyguard', 'Vigilante', 'Villager'];
 
 function buildSalemRoleDeck(totalCount) {
-  const deck = ['Godfather', 'Sheriff', 'Doctor', 'Vigilante', 'Jester'];
-  const specials = ['Killer', 'Werewolf', 'Bomber', 'PlagueDoctor'];
+  const deck = ['Godfather', 'Sheriff', 'Doctor', 'Medium', 'Vigilante', 'Jester'];
+  const specials = [
+    'Mayor', 'Bodyguard', 'Executioner', 'Consigliere',
+    'Werewolf', 'Bomber', 'PlagueDoctor', 'Killer'
+  ];
 
   for (const sp of specials) {
     if (deck.length < totalCount) deck.push(sp);
@@ -668,11 +673,15 @@ function buildSalemRoleDeck(totalCount) {
 }
 
 function isEvilRole(role) {
-  return ['Godfather', 'Killer', 'Werewolf', 'Bomber', 'PlagueDoctor', 'Pestilence'].includes(role);
+  return ['Godfather', 'Killer', 'Consigliere', 'Werewolf', 'Bomber', 'PlagueDoctor', 'Pestilence'].includes(role);
 }
 
 function isMafiaRole(role) {
-  return role === 'Godfather' || role === 'Killer';
+  return role === 'Godfather' || role === 'Killer' || role === 'Consigliere';
+}
+
+function isTownRole(role) {
+  return ['Villager', 'Doctor', 'Sheriff', 'Vigilante', 'Medium', 'Mayor', 'Bodyguard'].includes(role);
 }
 
 function broadcastMafiaNightChat(room, senderName, text) {
@@ -690,16 +699,22 @@ function broadcastMafiaNightChat(room, senderName, text) {
   }
 }
 
-function broadcastDeadChat(room, senderName, text) {
+// Medium Seance + Dead Chat Router (Every 3rd Night, living Mediums & Dead share the Seance channel!)
+function broadcastDeadOrSeanceChat(room, senderName, text, isLivingMedium = false) {
   if (!room.salem) return;
+  const s = room.salem;
+  const seanceNight = s.phase === 'night' && s.day % 3 === 0;
+
   for (const [sock, p] of room.players.entries()) {
-    const member = room.salem.town.get(p.username);
-    if (member && !member.alive) {
+    const member = s.town.get(p.username);
+    if (!member) continue;
+    const canHear = !member.alive || (seanceNight && member.alive && member.role === 'Medium');
+    if (canHear) {
       sendWs(sock, {
         type: 'chat',
-        username: `👻 [DEAD] ${senderName}`,
+        username: isLivingMedium ? `🔮 [MEDIUM SEANCE] ${senderName}` : `👻 [DEAD] ${senderName}`,
         text,
-        style: 'dead-chat'
+        style: seanceNight ? 'seance-chat' : 'dead-chat'
       });
     }
   }
@@ -708,8 +723,8 @@ function broadcastDeadChat(room, senderName, text) {
 function startSalemGame(room) {
   stopAllRoomIntervals(room);
 
-  if (getAllParticipants(room).length < 7) {
-    room.settings.aiCount = Math.max(room.settings.aiCount, 7 - room.players.size);
+  if (getAllParticipants(room).length < 8) {
+    room.settings.aiCount = Math.max(room.settings.aiCount, 8 - room.players.size);
     rebuildRoomAI(room);
     syncRoster(room);
   }
@@ -720,7 +735,7 @@ function startSalemGame(room) {
   const townMap = new Map();
   all.forEach((p, idx) => {
     const role = deck[idx];
-    const fakeClaim = isEvilRole(role) || role === 'Jester'
+    const fakeClaim = isEvilRole(role) || role === 'Jester' || role === 'Executioner'
       ? FAKE_CLAIM_ROLES[Math.floor(Math.random() * FAKE_CLAIM_ROLES.length)]
       : role;
 
@@ -732,9 +747,11 @@ function startSalemGame(room) {
       role,
       fakeClaim,
       alive: true,
+      mayorRevealed: false,
+      execTarget: '',
       revealedRole: '',
       bullets: role === 'Vigilante' ? 2 : 0,
-      basicDefense: role === 'Godfather' ? 1 : 0,
+      basicDefense: role === 'Godfather' || role === 'Executioner' ? 1 : 0,
       infected: role === 'PlagueDoctor',
       willText: `${p.username} the ${fakeClaim} — Night Logs:`,
       aiLogs: [],
@@ -742,23 +759,34 @@ function startSalemGame(room) {
     });
   });
 
+  // Assign Executioner a random living Town target
+  const townCandidates = Array.from(townMap.values()).filter(
+    t => isTownRole(t.role) && t.role !== 'Mayor'
+  );
+  townMap.forEach(member => {
+    if (member.role === 'Executioner' && townCandidates.length > 0) {
+      const pick = townCandidates[Math.floor(Math.random() * townCandidates.length)];
+      member.execTarget = pick.username;
+    }
+  });
+
   room.salem = {
     day: 1,
     phase: 'night',
     town: townMap,
-    graveyard: [], // [{ username, role, cause, willText, day }]
+    graveyard: [],
     nightActions: new Map(),
     votes: new Map(),
     bombs: new Set(),
     jesterHauntQueue: [],
     pestilenceUnleashed: false,
-    report: 'Night 1 has fallen. Mafia can whisper in private chat; special roles lock in targets!'
+    report: 'Night 1 has fallen. Mediums channel the Graveyard every 3rd Night (Night 3, 6, 9)!'
   };
 
   broadcast(room, {
     type: 'chat',
     username: 'Salem Crier',
-    text: '🕯️ Village of Salem has begun! Update your Last Will and check the Graveyard as players fall.',
+    text: '🕯️ Village of Salem has begun! Roles include Medium, Mayor, Executioner, Bodyguard & Consigliere.',
     style: 'system'
   });
 
@@ -777,6 +805,14 @@ function announceFallenPlayer(room, victim, causeText) {
       cause: causeText,
       willText: will || 'No Last Will left behind.',
       day: room.salem.day
+    });
+
+    // If an Executioner's target dies at night, Executioner becomes a Jester!
+    room.salem.town.forEach(member => {
+      if (member.alive && member.role === 'Executioner' && member.execTarget === victim.username && room.salem.phase === 'night') {
+        member.role = 'Jester';
+        member.execTarget = '';
+      }
     });
   }
 
@@ -801,10 +837,15 @@ function sendSalemStateToAll(room) {
   if (!room.salem) return;
   const s = room.salem;
   const fullMoon = s.day % 2 === 0;
+  const seanceNight = s.day % 3 === 0;
 
   const voteCounts = {};
-  for (const target of s.votes.values()) {
-    if (target !== 'SKIP') voteCounts[target] = (voteCounts[target] || 0) + 1;
+  for (const [voterName, target] of s.votes.entries()) {
+    if (target !== 'SKIP') {
+      const voterObj = s.town.get(voterName);
+      const weight = voterObj && voterObj.mayorRevealed ? 3 : 1;
+      voteCounts[target] = (voteCounts[target] || 0) + weight;
+    }
   }
 
   for (const [sock, p] of room.players.entries()) {
@@ -816,6 +857,8 @@ function sendSalemStateToAll(room) {
 
     if (me.role === 'Vigilante') extraStatus = `${me.bullets} Bullets`;
     if (me.role === 'Bomber') extraStatus = `${s.bombs.size} Planted`;
+    if (me.role === 'Executioner' && me.execTarget) extraStatus = `Target: ${me.execTarget}`;
+    if (me.role === 'Medium') extraStatus = seanceNight ? 'Seance ACTIVE' : `Seance on Night ${Math.ceil(s.day / 3) * 3}`;
 
     if (me.alive) {
       if (s.phase === 'night') {
@@ -824,17 +867,38 @@ function sendSalemStateToAll(room) {
           case 'Killer':
             canAct = true;
             actionLabel = 'Assassinate';
-            instruction = '🩸 Mafia Night Chat is open! Coordinate with your partner & pick a target.';
+            instruction = '🩸 Mafia Night Chat is open! Coordinate with your partners & pick a target.';
+            break;
+          case 'Consigliere':
+            canAct = true;
+            actionLabel = 'Inspect Role';
+            instruction = '🩸 Mafia Consigliere: Inspect a player tonight to uncover their exact role!';
             break;
           case 'Doctor':
             canAct = true;
             actionLabel = 'Heal';
-            instruction = 'Choose a player (or yourself) to heal tonight.';
+            instruction = 'Choose a player (or yourself) to heal from attacks tonight.';
+            break;
+          case 'Bodyguard':
+            canAct = true;
+            actionLabel = 'Guard';
+            instruction = 'Choose a player to guard tonight (You will duel & kill their first attacker!).';
             break;
           case 'Sheriff':
             canAct = true;
             actionLabel = 'Interrogate';
             instruction = 'Inspect a suspect tonight (Note: Godfathers & Jesters can fool Sheriffs!).';
+            break;
+          case 'Medium':
+            instruction = seanceNight
+              ? '🔮 SEANCE NIGHT (Every 3rd Night)! Type in the right-hand chat to commune with the Graveyard!'
+              : `You are the Medium. Your next Graveyard Seance opens on Night ${Math.ceil(s.day / 3) * 3}!`;
+            break;
+          case 'Mayor':
+            instruction = 'You are the Mayor! Survive the night—during the day you can reveal for 3x vote power.';
+            break;
+          case 'Executioner':
+            instruction = `🎯 You are the Executioner! Trick the Town into exiling ${me.execTarget} during the day trial.`;
             break;
           case 'Vigilante':
             canAct = me.bullets > 0;
@@ -875,19 +939,23 @@ function sendSalemStateToAll(room) {
         instruction = 'Cross-check the Graveyard Role List & Last Wills on the right!';
       } else if (s.phase === 'voting') {
         canAct = true;
-        actionLabel = 'Vote Exile';
-        instruction = 'Vote to exile a suspect (Beware of giving the Jester a free win!).';
+        actionLabel = me.mayorRevealed ? 'Vote (3x)' : 'Vote Exile';
+        instruction = 'Vote to exile a suspect (Beware of Jester & Executioner pushes!).';
       }
     } else {
-      instruction = '👻 You are in the Graveyard! You can talk with other fallen players in Dead Chat.';
+      instruction = seanceNight && s.phase === 'night'
+        ? '🔮 SEANCE NIGHT! A living Medium is listening to Dead Chat right now—share your leads!'
+        : '👻 You are in the Graveyard! You can talk with other fallen players in Dead Chat.';
     }
 
     const townView = Array.from(s.town.values()).map(t => ({
       username: t.username,
       color: t.color,
       alive: t.alive,
+      mayorRevealed: t.mayorRevealed,
       revealedRole: t.revealedRole,
       isMafiaMate: isMafiaRole(me.role) && isMafiaRole(t.role),
+      isExecTarget: me.role === 'Executioner' && me.execTarget === t.username,
       hasBomb: me.role === 'Bomber' && s.bombs.has(t.username),
       isInfected: (me.role === 'PlagueDoctor' || me.role === 'Pestilence') && t.infected
     }));
@@ -897,7 +965,9 @@ function sendSalemStateToAll(room) {
       day: s.day,
       phase: s.phase,
       fullMoon,
+      seanceNight,
       myRole: me.role,
+      mayorRevealed: me.mayorRevealed,
       extraStatus,
       plantedCount: s.bombs.size,
       amAlive: me.alive,
@@ -917,6 +987,15 @@ function runSalemPhaseLoop(room) {
   const s = room.salem;
   if (!s) return;
 
+  if (s.phase === 'night' && s.day % 3 === 0) {
+    broadcastDeadOrSeanceChat(
+      room,
+      'Seance Bell',
+      `Night ${s.day} Seance is open! Living Mediums and Fallen Ghosts can communicate tonight.`,
+      true
+    );
+  }
+
   sendSalemStateToAll(room);
   scheduleNonCheatingSalemAI(room);
 
@@ -935,7 +1014,7 @@ function runSalemPhaseLoop(room) {
 }
 
 // ============================================================================
-// NON-CHEATING SALEM SOCIAL DEDUCTION AI + MAFIA NIGHT WHISPERS
+// NON-CHEATING SALEM AI (With Medium Seance Ghosts, Executioner & Mayor Logic)
 // ============================================================================
 function pickAiTargetWithoutCheating(ai, aliveOthers) {
   if (aliveOthers.length === 0) return null;
@@ -951,8 +1030,33 @@ function scheduleNonCheatingSalemAI(room) {
   const s = room.salem;
   if (!s) return;
   const fullMoon = s.day % 2 === 0;
+  const seanceNight = s.day % 3 === 0;
   const style = room.settings.salemAiStyle || 'deductive';
   const aliveList = Array.from(s.town.values()).filter(t => t.alive);
+  const deadAiList = Array.from(s.town.values()).filter(t => !t.alive && t.isAI);
+
+  // Dead AI ghosts whisper clues during Every-3rd-Night Seance!
+  if (s.phase === 'night' && seanceNight && deadAiList.length > 0 && aliveList.length > 0) {
+    const ghost = deadAiList[Math.floor(Math.random() * deadAiList.length)];
+    const suspect = aliveList[Math.floor(Math.random() * aliveList.length)];
+    const timerId = setTimeout(() => {
+      if (!room.salem || room.salem.phase !== 'night') return;
+      broadcastDeadOrSeanceChat(
+        room,
+        ghost.username,
+        `Medium, listen closely! Before I died, ${suspect.username}'s alibi didn't add up—watch them tomorrow!`,
+        false
+      );
+      aliveList.forEach(m => {
+        if (m.isAI && m.role === 'Medium') {
+          m.aiLogs.push(`Seance N${s.day}: Ghost ${ghost.username} warned about ${suspect.username}`);
+          m.willText = `${m.username} the Medium | ${m.aiLogs.join('; ')}`;
+          m.susMap.set(suspect.username, (m.susMap.get(suspect.username) || 0) + 2.2);
+        }
+      });
+    }, 4000);
+    room.salemChatTimeouts.push(timerId);
+  }
 
   aliveList.filter(t => t.isAI).forEach(ai => {
     const aliveOthers = aliveList.filter(t => t.username !== ai.username);
@@ -964,24 +1068,30 @@ function scheduleNonCheatingSalemAI(room) {
         const pick = nonMafia[Math.floor(Math.random() * nonMafia.length)];
         if (pick) {
           s.nightActions.set(ai.username, pick.username);
-          // Whisper target in Private Mafia Night Chat so human Mafia teammates can coordinate!
           const timerId = setTimeout(() => {
             if (!room.salem || room.salem.phase !== 'night' || !ai.alive) return;
             broadcastMafiaNightChat(
               room,
               ai.username,
-              `I'm targeting ${pick.username} tonight. I'll fake-claim ${ai.fakeClaim} tomorrow.`
+              `Targeting ${pick.username} tonight. Tomorrow I'll claim ${ai.fakeClaim}.`
             );
           }, 2500 + Math.floor(Math.random() * 4000));
           room.salemChatTimeouts.push(timerId);
         }
         const randomPeer = aliveOthers[Math.floor(Math.random() * aliveOthers.length)];
-        ai.willText = `${ai.username} the ${ai.fakeClaim} | N${s.day}: Checked/Protected ${randomPeer.username}`;
-      } else if (ai.role === 'Doctor') {
-        const pick = Math.random() < 0.25 ? ai : aliveOthers[Math.floor(Math.random() * aliveOthers.length)];
-        s.nightActions.set(ai.username, pick.username);
-        ai.aiLogs.push(`N${s.day}: Healed ${pick.username}`);
-        ai.willText = `${ai.username} the Doctor | ${ai.aiLogs.join(', ')}`;
+        ai.willText = `${ai.username} the ${ai.fakeClaim} | N${s.day}: Visited ${randomPeer.username}`;
+      } else if (ai.role === 'Consigliere') {
+        const nonMafia = aliveOthers.filter(t => !isMafiaRole(t.role));
+        const pick = nonMafia[Math.floor(Math.random() * nonMafia.length)];
+        if (pick) s.nightActions.set(ai.username, pick.username);
+      } else if (ai.role === 'Doctor' || ai.role === 'Bodyguard') {
+        const revealedMayor = aliveOthers.find(t => t.mayorRevealed);
+        const pick = revealedMayor || aliveOthers[Math.floor(Math.random() * aliveOthers.length)];
+        if (pick) {
+          s.nightActions.set(ai.username, pick.username);
+          ai.aiLogs.push(`N${s.day}: Protected ${pick.username}`);
+          ai.willText = `${ai.username} the ${ai.role} | ${ai.aiLogs.join(', ')}`;
+        }
       } else if (ai.role === 'Sheriff') {
         const pick = pickAiTargetWithoutCheating(ai, aliveOthers);
         if (pick) s.nightActions.set(ai.username, pick.username);
@@ -989,7 +1099,7 @@ function scheduleNonCheatingSalemAI(room) {
         const topSus = pickAiTargetWithoutCheating(ai, aliveOthers);
         if (s.day > 1 && topSus && (ai.susMap.get(topSus.username) || 0) >= 2 && Math.random() < 0.6) {
           s.nightActions.set(ai.username, topSus.username);
-          ai.aiLogs.push(`N${s.day}: Shooting ${topSus.username}`);
+          ai.aiLogs.push(`N${s.day}: Shot ${topSus.username}`);
           ai.willText = `${ai.username} the Vigilante | ${ai.aiLogs.join(', ')}`;
         }
       } else if (ai.role === 'Werewolf' && fullMoon) {
@@ -1007,11 +1117,24 @@ function scheduleNonCheatingSalemAI(room) {
         const uninfected = aliveOthers.filter(t => !t.infected);
         const pick = uninfected[Math.floor(Math.random() * uninfected.length)] || aliveOthers[0];
         if (pick) s.nightActions.set(ai.username, pick.username);
-      } else if (ai.role === 'Jester') {
-        const randomPeer = aliveOthers[Math.floor(Math.random() * aliveOthers.length)];
-        ai.willText = `${ai.username} the "Sheriff" | N${s.day}: ${randomPeer.username} is 100% SUS (jk?)`;
       }
     } else if (s.phase === 'discussion') {
+      // AI Mayor might reveal on Day 2+
+      if (ai.role === 'Mayor' && !ai.mayorRevealed && s.day >= 2 && Math.random() < 0.5) {
+        const revTimer = setTimeout(() => {
+          if (!room.salem || !ai.alive || ai.mayorRevealed) return;
+          ai.mayorRevealed = true;
+          broadcast(room, {
+            type: 'chat',
+            username: 'Salem Crier',
+            text: `🎖️ ${ai.username} has officially revealed themselves as the MAYOR of Salem! (Vote weight: 3x)`,
+            style: 'correct'
+          });
+          sendSalemStateToAll(room);
+        }, 3000);
+        room.salemChatTimeouts.push(revTimer);
+      }
+
       const speakChance = style === 'chaotic' ? 0.75 : (style === 'deductive' ? 0.6 : 0.45);
       if (Math.random() > speakChance) return;
 
@@ -1023,9 +1146,14 @@ function scheduleNonCheatingSalemAI(room) {
         const randomPeer = pickAiTargetWithoutCheating(ai, currentOthers);
 
         let line = '';
-        if (ai.role === 'Sheriff' && ai.aiLogs.length > 0) {
+        if ((ai.role === 'Sheriff' || ai.role === 'Medium') && ai.aiLogs.length > 0) {
           const latestLog = ai.aiLogs[ai.aiLogs.length - 1];
-          line = `Sheriff here! My latest log: ${latestLog}. Check the Graveyard wills too!`;
+          line = `${ai.role} claim here! Latest log: ${latestLog}. Thoughts?`;
+        } else if (ai.role === 'Executioner' && ai.execTarget) {
+          line = `I checked ${ai.execTarget} last night and they came back SUSPICIOUS! We need to trial ${ai.execTarget} today!`;
+          aliveList.forEach(other => {
+            if (other.isAI) other.susMap.set(ai.execTarget, (other.susMap.get(ai.execTarget) || 0) + 1.1);
+          });
         } else if (ai.role === 'Jester') {
           const jesterLines = [
             `Wait why is everyone looking at me?? I'm totally ${ai.fakeClaim}, trust me bro.`,
@@ -1049,17 +1177,11 @@ function scheduleNonCheatingSalemAI(room) {
             if (other.isAI) other.susMap.set(randomPeer.username, (other.susMap.get(randomPeer.username) || 0) + 0.7);
           });
         } else {
-          const townLines = style === 'chaotic'
-            ? [
-                `${randomPeer.username} is acting mad sus right now, what's your role??`,
-                `Watch out for Bomber and Plague Doctor, don't let them stall the trial!`,
-                `Hold up, who hasn't claimed a role yet? Looking at you ${randomPeer.username}.`
-              ]
-            : [
-                `${randomPeer.username}, any leads or Last Will to share with the Town?`,
-                `Check the Graveyard wills on the right—${randomPeer.username}'s claim might conflict.`,
-                `Let's compare wills—I'm leaning slightly sus on ${randomPeer.username} unless they claim.`
-              ];
+          const townLines = [
+            `${randomPeer.username}, any leads or Last Will to share with the Town?`,
+            `Check the Graveyard wills on the right—${randomPeer.username}'s claim might conflict.`,
+            `Careful of Executioner pushes, let's get role claims before locking votes on ${randomPeer.username}.`
+          ];
           line = townLines[Math.floor(Math.random() * townLines.length)];
         }
 
@@ -1076,15 +1198,26 @@ function scheduleNonCheatingSalemAI(room) {
         const currentOthers = Array.from(s.town.values()).filter(t => t.alive && t.username !== ai.username);
         if (currentOthers.length === 0) return;
 
+        if (ai.role === 'Executioner' && ai.execTarget) {
+          const execT = s.town.get(ai.execTarget);
+          if (execT && execT.alive) {
+            s.votes.set(ai.username, ai.execTarget);
+            sendSalemStateToAll(room);
+            return;
+          }
+        }
+
         if (Math.random() < 0.25) {
           s.votes.set(ai.username, 'SKIP');
           sendSalemStateToAll(room);
           return;
         }
 
-        let pool = currentOthers;
+        let pool = currentOthers.filter(t => !t.mayorRevealed);
+        if (pool.length === 0) pool = currentOthers;
+
         if (isMafiaRole(ai.role)) {
-          const nonMafia = currentOthers.filter(t => !isMafiaRole(t.role));
+          const nonMafia = pool.filter(t => !isMafiaRole(t.role));
           if (nonMafia.length > 0) pool = nonMafia;
         }
 
@@ -1107,8 +1240,9 @@ function advanceSalemPhase(room) {
   if (s.phase === 'night') {
     const fullMoon = s.day % 2 === 0;
     const healedSet = new Set();
+    const guardedBy = new Map(); // targetName -> bodyguardName
     const visitorsTo = new Map();
-    const nightKills = [];
+    const nightKills = []; // { victimName, attackerName, cause, unstoppable }
     let mafiaKillIssued = false;
 
     const recordVisit = (visitor, target) => {
@@ -1124,6 +1258,7 @@ function advanceSalemPhase(room) {
         const haunted = validVoters[Math.floor(Math.random() * validVoters.length)];
         nightKills.push({
           victimName: haunted.username,
+          attackerName: '',
           cause: `Haunted by Jester ${haunt.jesterName}`,
           unstoppable: true
         });
@@ -1137,11 +1272,22 @@ function advanceSalemPhase(room) {
 
       if (actor.role === 'Doctor') {
         healedSet.add(targetName);
+      } else if (actor.role === 'Bodyguard') {
+        guardedBy.set(targetName, actorName);
+      } else if (actor.role === 'Consigliere') {
+        const inspected = s.town.get(targetName);
+        if (inspected) {
+          broadcastMafiaNightChat(
+            room,
+            `${actor.username} (Consigliere)`,
+            `Intel report: ${inspected.username}'s exact role is ${inspected.role}!`
+          );
+        }
       } else if (actor.role === 'Sheriff') {
         const inspected = s.town.get(targetName);
         if (inspected) {
           const looksSus =
-            ['Killer', 'Werewolf', 'Bomber', 'PlagueDoctor', 'Pestilence'].includes(inspected.role) ||
+            ['Killer', 'Consigliere', 'Werewolf', 'Bomber', 'PlagueDoctor', 'Pestilence'].includes(inspected.role) ||
             (inspected.role === 'Jester' && Math.random() < 0.6);
 
           if (actor.isAI) {
@@ -1153,29 +1299,29 @@ function advanceSalemPhase(room) {
       } else if (actor.role === 'Godfather' || actor.role === 'Killer') {
         if (!mafiaKillIssued) {
           mafiaKillIssued = true;
-          nightKills.push({ victimName: targetName, cause: 'Mafia Ambush', unstoppable: false });
+          nightKills.push({ victimName: targetName, attackerName: actorName, cause: 'Mafia Ambush', unstoppable: false });
         }
       } else if (actor.role === 'Vigilante' && actor.bullets > 0) {
         actor.bullets--;
         const shotTarget = s.town.get(targetName);
         if (shotTarget) {
-          nightKills.push({ victimName: targetName, cause: 'Vigilante Shot', unstoppable: false });
-          if (!isEvilRole(shotTarget.role) && shotTarget.role !== 'Jester') {
+          nightKills.push({ victimName: targetName, attackerName: actorName, cause: 'Vigilante Shot', unstoppable: false });
+          if (isTownRole(shotTarget.role)) {
             actor.bullets = 0;
           }
         }
       } else if (actor.role === 'Werewolf' && fullMoon) {
-        nightKills.push({ victimName: targetName, cause: 'Werewolf Full-Moon Maul', unstoppable: false });
+        nightKills.push({ victimName: targetName, attackerName: actorName, cause: 'Werewolf Full-Moon Maul', unstoppable: false });
         const othersAtHouse = visitorsTo.get(targetName) || [];
         othersAtHouse.forEach(vName => {
           if (vName !== actorName) {
-            nightKills.push({ victimName: vName, cause: 'Mauled visiting a Werewolf target', unstoppable: false });
+            nightKills.push({ victimName: vName, attackerName: actorName, cause: 'Mauled visiting a Werewolf target', unstoppable: false });
           }
         });
       } else if (actor.role === 'Bomber') {
         if (targetName === 'DETONATE') {
           s.bombs.forEach(bombedUser => {
-            nightKills.push({ victimName: bombedUser, cause: 'Detonated by the Bomber', unstoppable: true });
+            nightKills.push({ victimName: bombedUser, attackerName: actorName, cause: 'Detonated by the Bomber', unstoppable: true });
           });
           s.bombs.clear();
         } else {
@@ -1185,7 +1331,7 @@ function advanceSalemPhase(room) {
         const t = s.town.get(targetName);
         if (t) t.infected = true;
       } else if (actor.role === 'Pestilence') {
-        nightKills.push({ victimName: targetName, cause: 'Obliterated by Pestilence', unstoppable: true });
+        nightKills.push({ victimName: targetName, attackerName: actorName, cause: 'Obliterated by Pestilence', unstoppable: true });
       }
     }
 
@@ -1210,6 +1356,24 @@ function advanceSalemPhase(room) {
       if (!victim || !victim.alive) return;
       if (victim.role === 'Pestilence') return;
 
+      // Bodyguard Interception Duel!
+      if (!k.unstoppable && guardedBy.has(victim.username) && k.attackerName) {
+        const bgName = guardedBy.get(victim.username);
+        const bgObj = s.town.get(bgName);
+        const atkObj = s.town.get(k.attackerName);
+        guardedBy.delete(victim.username);
+
+        if (bgObj && bgObj.alive) {
+          announceFallenPlayer(room, bgObj, `Fought off an attacker guarding ${victim.username}`);
+          casualties.push(`${bgObj.username} (Bodyguard)`);
+        }
+        if (atkObj && atkObj.alive && atkObj.role !== 'Pestilence') {
+          announceFallenPlayer(room, atkObj, `Slain by Bodyguard ${bgName}`);
+          casualties.push(`${atkObj.username} (${atkObj.role})`);
+        }
+        return;
+      }
+
       if (!k.unstoppable) {
         if (healedSet.has(victim.username)) return;
         if (victim.basicDefense > 0) {
@@ -1230,7 +1394,7 @@ function advanceSalemPhase(room) {
       broadcast(room, {
         type: 'chat',
         username: 'Apocalypse Herald',
-        text: '☣️ A horseman approaches! Every living soul is infected — The Plague Doctor has become PESTILENCE!',
+        text: '☣️ Every living soul is infected — The Plague Doctor has transformed into PESTILENCE!',
         style: 'correct'
       });
     }
@@ -1253,7 +1417,9 @@ function advanceSalemPhase(room) {
 
     for (const [voter, target] of s.votes.entries()) {
       if (target !== 'SKIP') {
-        tally[target] = (tally[target] || 0) + 1;
+        const voterObj = s.town.get(voter);
+        const weight = voterObj && voterObj.mayorRevealed ? 3 : 1;
+        tally[target] = (tally[target] || 0) + weight;
         if (!votersByCandidate[target]) votersByCandidate[target] = [];
         votersByCandidate[target].push(voter);
       }
@@ -1273,6 +1439,21 @@ function advanceSalemPhase(room) {
       if (exiled && exiled.alive) {
         announceFallenPlayer(room, exiled, `Exiled by Town Trial (${topVotes} votes)`);
         s.report = `The Town exiled ${exiled.username} (${exiled.role})!`;
+
+        // Check if any living Executioner had this player as their target
+        s.town.forEach(member => {
+          if (member.alive && member.role === 'Executioner' && member.execTarget === exiled.username) {
+            const ep = getAllParticipants(room).find(u => u.username === member.username);
+            if (ep) ep.score = (ep.score || 0) + 250;
+            syncRoster(room);
+            broadcast(room, {
+              type: 'chat',
+              username: 'Executioner Victory',
+              text: `🪓 ${member.username} (Executioner) successfully tricked the Town into exiling ${exiled.username}! (+250 pts)`,
+              style: 'correct'
+            });
+          }
+        });
 
         if (exiled.role === 'Jester') {
           s.jesterHauntQueue.push({
@@ -1312,16 +1493,14 @@ function checkSalemWinCondition(room) {
   const aliveNeutEvil = alive.filter(t =>
     ['Werewolf', 'Bomber', 'PlagueDoctor', 'Pestilence'].includes(t.role)
   ).length;
-  const aliveTown = alive.filter(t =>
-    ['Villager', 'Doctor', 'Sheriff', 'Vigilante'].includes(t.role)
-  ).length;
+  const aliveTown = alive.filter(t => isTownRole(t.role)).length;
 
   if (aliveMafia === 0 && aliveNeutEvil === 0) {
     stopAllRoomIntervals(room);
     s.report = `🏆 TOWN VICTORY! All Mafia, Monsters, and Apocalypse threats have been vanquished!`;
     getAllParticipants(room).forEach(p => {
       const t = s.town.get(p.username);
-      if (t && ['Villager', 'Doctor', 'Sheriff', 'Vigilante'].includes(t.role)) {
+      if (t && isTownRole(t.role)) {
         p.score = (p.score || 0) + 160;
       }
     });
@@ -1351,142 +1530,281 @@ function checkSalemWinCondition(room) {
 }
 
 // ============================================================================
-// 8. STICKMAN SHADOW FIGHT ENGINE
+// 8. STICKMAN SHADOW FIGHT (PACED 2D PHYSICS + 1V1 TOURNAMENT BRACKET)
 // ============================================================================
-function spawnFighter(room, p, idx = 0) {
-  room.fighters.set(p.username, {
+function createFighterState(p, sideIndex) {
+  return {
     username: p.username,
-    color: p.color || '#ef4444',
+    color: p.color || (sideIndex === 0 ? '#ef4444' : '#3b82f6'),
     isAI: Boolean(p.isAI),
     aiTier: p.aiTier || 'medium',
-    x: 180 + (idx * 220) % 600,
-    y: 440,
+    x: sideIndex === 0 ? 270 : 690,
+    y: 430,
+    vx: 0,
     vy: 0,
     moveX: 0,
-    facing: idx % 2 === 0 ? 1 : -1,
+    facing: sideIndex === 0 ? 1 : -1,
     hp: 100,
     state: 'idle',
-    cooldown: 0
-  });
+    cooldown: 0,
+    stun: 0
+  };
 }
 
 function startShadowFight(room) {
   stopAllRoomIntervals(room);
+
+  // Ensure at least 4 competitors for a clean 1v1 Bracket (Semifinals -> Finals)
+  if (getAllParticipants(room).length < 4) {
+    room.settings.aiCount = Math.max(room.settings.aiCount, 4 - room.players.size);
+    rebuildRoomAI(room);
+    syncRoster(room);
+  }
+
+  const competitors = [...getAllParticipants(room)];
+  // Shuffle bracket seeding
+  for (let i = competitors.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [competitors[i], competitors[j]] = [competitors[j], competitors[i]];
+  }
+
+  room.shadowBracket = {
+    roundNumber: 1,
+    currentPool: competitors,
+    nextRoundWinners: [],
+    matchIndex: 0,
+    activePair: []
+  };
+
+  launchNextBracketDuel(room);
+}
+
+function launchNextBracketDuel(room) {
+  const b = room.shadowBracket;
+  if (!b) return;
+
+  // If current round pool is exhausted, advance to next bracket stage!
+  if (b.matchIndex * 2 >= b.currentPool.length) {
+    if (b.nextRoundWinners.length <= 1) {
+      const champ = b.nextRoundWinners[0] || b.currentPool[0];
+      if (champ) {
+        const p = getAllParticipants(room).find(u => u.username === champ.username);
+        if (p) p.score = (p.score || 0) + 150;
+        syncRoster(room);
+        broadcast(room, {
+          type: 'chat',
+          username: 'Dojo Grandmaster',
+          text: `🏆 ${champ.username} won the 1v1 Shadow Fight Tournament Finals! (+150 pts) — Starting new bracket in 4s...`,
+          style: 'correct'
+        });
+      }
+      setTimeout(() => {
+        if (room.mode === 'shadow') startShadowFight(room);
+      }, 4000);
+      return;
+    }
+
+    b.currentPool = [...b.nextRoundWinners];
+    b.nextRoundWinners = [];
+    b.matchIndex = 0;
+    b.roundNumber++;
+  }
+
+  const p1 = b.currentPool[b.matchIndex * 2];
+  const p2 = b.currentPool[b.matchIndex * 2 + 1];
+
+  // Odd player gets a bye to the next round
+  if (p1 && !p2) {
+    b.nextRoundWinners.push(p1);
+    b.matchIndex++;
+    broadcast(room, {
+      type: 'chat',
+      username: 'Dojo Bracket',
+      text: `🥋 ${p1.username} receives a bracket bye into the next round!`,
+      style: 'system'
+    });
+    launchNextBracketDuel(room);
+    return;
+  }
+
   room.fighters.clear();
   room.effects = [];
+  const f1 = createFighterState(p1, 0);
+  const f2 = createFighterState(p2, 1);
+  room.fighters.set(f1.username, f1);
+  room.fighters.set(f2.username, f2);
+  b.activePair = [f1.username, f2.username];
 
-  getAllParticipants(room).forEach((p, idx) => spawnFighter(room, p, idx));
+  const totalMatchesInRound = Math.ceil(b.currentPool.length / 2);
+  const stageName = totalMatchesInRound === 1
+    ? 'Grand Finals'
+    : (totalMatchesInRound === 2 ? 'Semifinals' : `Round ${b.roundNumber}`);
 
-  room.shadowInterval = setInterval(() => {
-    const fighters = Array.from(room.fighters.values());
-    room.effects = room.effects.filter(ef => Date.now() - ef.born < 180);
+  broadcast(room, {
+    type: 'chat',
+    username: 'Dojo Announcer',
+    text: `⚔️ [${stageName}] 1v1 Duel: ${f1.username} vs ${f2.username}!`,
+    style: 'system'
+  });
 
-    fighters.forEach(f => {
-      if (f.cooldown > 0) f.cooldown--;
-      if (f.cooldown === 0 && ['punch', 'kick', 'slash'].includes(f.state)) {
-        f.state = f.moveX !== 0 ? 'walk' : 'idle';
-      }
+  clearInterval(room.shadowInterval);
+  room.shadowInterval = setInterval(() => tickShadowDuel(room, stageName, totalMatchesInRound), 50);
+}
 
-      if (f.isAI && fighters.length > 1) {
-        let target = null;
-        let minDist = Infinity;
-        fighters.forEach(other => {
-          if (other.username === f.username) return;
-          const d = Math.abs(other.x - f.x);
-          if (d < minDist) {
-            minDist = d;
-            target = other;
-          }
-        });
+function tickShadowDuel(room, stageName, totalMatchesInRound) {
+  const b = room.shadowBracket;
+  if (!b) return;
 
-        if (target) {
-          f.facing = target.x >= f.x ? 1 : -1;
-          const aggro = f.aiTier === 'hard' ? 0.22 : (f.aiTier === 'medium' ? 0.13 : 0.07);
+  const fighters = Array.from(room.fighters.values());
+  if (fighters.length < 2) return;
 
-          if (minDist > 72) {
-            f.moveX = f.facing;
-            f.state = 'walk';
+  room.effects = room.effects.filter(ef => Date.now() - ef.born < 180);
+
+  fighters.forEach(f => {
+    if (f.cooldown > 0) f.cooldown--;
+    if (f.stun > 0) f.stun--;
+
+    if (f.stun === 0 && f.cooldown === 0 && ['punch', 'kick', 'slash', 'hitstun'].includes(f.state)) {
+      f.state = f.moveX !== 0 ? 'walk' : 'idle';
+    }
+
+    const opponent = fighters.find(o => o.username !== f.username);
+    if (!opponent) return;
+
+    // Paced Martial Arts AI Decision Tree
+    if (f.isAI && f.stun === 0) {
+      const dx = opponent.x - f.x;
+      const dist = Math.abs(dx);
+      f.facing = dx >= 0 ? 1 : -1;
+
+      const strikeRate = f.aiTier === 'hard' ? 0.14 : (f.aiTier === 'medium' ? 0.09 : 0.05);
+
+      if (dist > 82) {
+        f.moveX = f.facing;
+        if (f.cooldown === 0) f.state = 'walk';
+      } else if (dist < 44) {
+        // Step back slightly for spacing like real Shadow Fight
+        f.moveX = Math.random() < 0.35 ? -f.facing : 0;
+      } else {
+        f.moveX = 0;
+        if (f.cooldown === 0 && Math.random() < strikeRate) {
+          // React with block if opponent is mid-slash
+          if (opponent.state === 'slash' && Math.random() < 0.45) {
+            triggerFighterAction(room, f, 'block');
           } else {
-            f.moveX = 0;
-            if (f.cooldown === 0 && Math.random() < aggro) {
-              const moves = ['punch', 'kick', 'slash', 'block'];
-              triggerFighterAction(room, f, moves[Math.floor(Math.random() * moves.length)]);
-            }
+            const moves = ['punch', 'kick', 'slash', 'block'];
+            triggerFighterAction(room, f, moves[Math.floor(Math.random() * moves.length)]);
           }
         }
       }
+    }
 
-      if (f.state !== 'block') {
-        f.x = Math.max(60, Math.min(900, f.x + f.moveX * 7.5));
-        if (f.moveX !== 0) f.facing = Math.sign(f.moveX);
-      }
+    // Deliberate 2D Movement + Knockback Friction
+    const walkVel = (f.state !== 'block' && f.stun === 0 && f.cooldown < 6) ? f.moveX * 4.4 : 0;
+    f.x = Math.max(125, Math.min(835, Math.round(f.x + walkVel + f.vx)));
+    f.vx *= 0.76;
+    if (Math.abs(f.vx) < 0.3) f.vx = 0;
 
-      f.y += f.vy;
-      if (f.y < 440) {
-        f.vy += 1.8;
-      } else {
-        f.y = 440;
-        f.vy = 0;
-      }
-    });
+    if (f.moveX !== 0 && f.stun === 0 && !f.isAI) {
+      f.facing = Math.sign(f.moveX);
+    }
 
-    broadcast(room, {
-      type: 'shadowTick',
-      fighters,
-      effects: room.effects
-    });
-  }, 55);
+    // Gravity on 2D Dojo Floor (y = 430)
+    f.y = Math.round(f.y + f.vy);
+    if (f.y < 430) {
+      f.vy += 1.45;
+    } else {
+      f.y = 430;
+      f.vy = 0;
+    }
+  });
+
+  const nextIdx = (b.matchIndex + 1) * 2;
+  const upNextA = b.currentPool[nextIdx];
+  const upNextB = b.currentPool[nextIdx + 1];
+  const queueSummary = upNextA
+    ? `Up Next: ${upNextA.username} vs ${upNextB ? upNextB.username : 'BYE'} | Advancing: ${b.nextRoundWinners.map(w => w.username).join(', ') || 'None yet'}`
+    : `Advancing to Next Stage: ${b.nextRoundWinners.map(w => w.username).join(', ') || 'Winner of this duel'}`;
+
+  broadcast(room, {
+    type: 'shadowTick',
+    fighters,
+    effects: room.effects,
+    bracket: {
+      stageName,
+      currentMatchLabel: `Match ${b.matchIndex + 1}/${totalMatchesInRound}: ${fighters[0].username} vs ${fighters[1].username}`,
+      queueSummary,
+      spectatorNote: '1v1 Elimination Bracket — Winner advances to Finals!'
+    }
+  });
 }
 
 function triggerFighterAction(room, attacker, action) {
-  if (attacker.cooldown > 0) return;
+  if (!room.shadowBracket || attacker.cooldown > 0 || attacker.stun > 0) return;
 
   if (action === 'block') {
     attacker.state = 'block';
-    attacker.cooldown = 10;
+    attacker.cooldown = 12;
     return;
   }
 
   attacker.state = action;
+  // Deliberate, paced frame data & knockback velocities
   const stats = {
-    punch: { range: 64, dmg: 10, cd: 6, knock: 14 },
-    kick: { range: 76, dmg: 15, cd: 9, knock: 24 },
-    slash: { range: 96, dmg: 22, cd: 13, knock: 32 }
-  }[action] || { range: 64, dmg: 10, cd: 6, knock: 14 };
+    punch: { range: 62, dmg: 9, cd: 10, stun: 5, knockVx: 7 },
+    kick: { range: 78, dmg: 14, cd: 16, stun: 8, knockVx: 13 },
+    slash: { range: 96, dmg: 20, cd: 23, stun: 11, knockVx: 18 }
+  }[action] || { range: 62, dmg: 9, cd: 10, stun: 5, knockVx: 7 };
 
   attacker.cooldown = stats.cd;
 
   for (const target of room.fighters.values()) {
     if (target.username === attacker.username) continue;
     const dx = target.x - attacker.x;
-    const inFront = Math.sign(dx) === attacker.facing || Math.abs(dx) < 20;
+    const inFront = Math.sign(dx) === attacker.facing || Math.abs(dx) < 18;
 
     if (inFront && Math.abs(dx) <= stats.range && Math.abs(target.y - attacker.y) < 55) {
       const blocked = target.state === 'block';
       const finalDmg = blocked ? Math.ceil(stats.dmg * 0.2) : stats.dmg;
       target.hp -= finalDmg;
-      target.x = Math.max(60, Math.min(900, target.x + attacker.facing * (blocked ? 6 : stats.knock)));
+      target.vx = attacker.facing * (blocked ? 3.5 : stats.knockVx);
+
+      if (!blocked) {
+        target.state = 'hitstun';
+        target.stun = stats.stun;
+      } else {
+        attacker.cooldown += 4; // Slight parry stagger when hitting a guard
+      }
 
       room.effects.push({
-        x: (attacker.x + target.x) / 2,
+        x: Math.round((attacker.x + target.x) / 2),
         y: target.y - 62,
         color: blocked ? '#3b82f6' : attacker.color,
         born: Date.now()
       });
 
       if (target.hp <= 0) {
-        target.hp = 100;
-        target.x = 120 + Math.floor(Math.random() * 720);
-        const p = getAllParticipants(room).find(u => u.username === attacker.username);
-        if (p) p.score = (p.score || 0) + 50;
+        target.hp = 0;
+        clearInterval(room.shadowInterval);
+
+        const winnerParticipant = getAllParticipants(room).find(u => u.username === attacker.username);
+        if (winnerParticipant) {
+          winnerParticipant.score = (winnerParticipant.score || 0) + 45;
+          room.shadowBracket.nextRoundWinners.push(winnerParticipant);
+        }
+        room.shadowBracket.matchIndex++;
         syncRoster(room);
 
         broadcast(room, {
           type: 'chat',
-          username: 'Shadow Dojo',
-          text: `⚔️ ${attacker.username} defeated ${target.username} with a ${action.toUpperCase()}! (+50 pts)`,
+          username: 'Dojo Referee',
+          text: `🥋 ${attacker.username} defeated ${target.username} with a ${action.toUpperCase()} and advances in the bracket! (+45 pts)`,
           style: 'correct'
         });
+
+        setTimeout(() => {
+          if (room.mode === 'shadow') launchNextBracketDuel(room);
+        }, 2400);
       }
     }
   }
@@ -1540,8 +1858,6 @@ server.on('upgrade', (req, socket) => {
 
         if (currentRoom.mode === 'snake') {
           spawnSnake(currentRoom, currentRoom.players.get(socket));
-        } else if (currentRoom.mode === 'shadow') {
-          spawnFighter(currentRoom, currentRoom.players.get(socket), currentRoom.players.size);
         } else if (currentRoom.mode === 'salem' && currentRoom.salem) {
           sendSalemStateToAll(currentRoom);
         }
@@ -1635,6 +1951,20 @@ server.on('upgrade', (req, socket) => {
         if (actor && actor.alive) {
           actor.willText = String(msg.willText || '').slice(0, 140);
         }
+      } else if (msg.type === 'salemMayorReveal') {
+        if (!currentRoom.salem) continue;
+        const s = currentRoom.salem;
+        const actor = s.town.get(sender.username);
+        if (actor && actor.alive && actor.role === 'Mayor' && !actor.mayorRevealed && s.phase !== 'night') {
+          actor.mayorRevealed = true;
+          broadcast(currentRoom, {
+            type: 'chat',
+            username: 'Salem Crier',
+            text: `🎖️ ${actor.username} has officially revealed themselves as the MAYOR of Salem! Their vote now counts as 3 votes!`,
+            style: 'correct'
+          });
+          sendSalemStateToAll(currentRoom);
+        }
       } else if (msg.type === 'salemAction') {
         if (!currentRoom.salem) continue;
         const s = currentRoom.salem;
@@ -1647,16 +1977,26 @@ server.on('upgrade', (req, socket) => {
             const inspected = s.town.get(msg.target);
             if (inspected) {
               const looksSus =
-                ['Killer', 'Werewolf', 'Bomber', 'PlagueDoctor', 'Pestilence'].includes(inspected.role) ||
+                ['Killer', 'Consigliere', 'Werewolf', 'Bomber', 'PlagueDoctor', 'Pestilence'].includes(inspected.role) ||
                 (inspected.role === 'Jester' && Math.random() < 0.6);
               const verdict = looksSus
                 ? '⚠️ SUSPICIOUS (Evil or Jester!)'
-                : '✅ SEEMS INNOCENT (Town or Godfather)';
+                : '✅ SEEMS INNOCENT (Town, Executioner, or Godfather)';
               sendWs(socket, {
                 type: 'chat',
                 username: 'Sheriff Report',
                 text: `Night ${s.day} inspection of ${inspected.username}: ${verdict}`,
                 style: 'correct'
+              });
+            }
+          } else if (actor.role === 'Consigliere') {
+            const inspected = s.town.get(msg.target);
+            if (inspected) {
+              sendWs(socket, {
+                type: 'chat',
+                username: 'Consigliere Intel',
+                text: `Night ${s.day} exact role of ${inspected.username}: ${inspected.role}`,
+                style: 'mafia-chat'
               });
             }
           } else if (isMafiaRole(actor.role)) {
@@ -1712,19 +2052,22 @@ server.on('upgrade', (req, socket) => {
         const text = String(msg.text || '').trim();
         if (!text) continue;
 
-        // VILLAGE OF SALEM CHAT ROUTING (Dead Chat, Mafia Night Chat, & Public Day Chat)
+        // VILLAGE OF SALEM CHAT ROUTING (Dead Chat, Medium Seance, Mafia Night Chat, & Public Day Chat)
         if (currentRoom.mode === 'salem' && currentRoom.salem) {
           const s = currentRoom.salem;
           const member = s.town.get(sender.username);
+          const seanceNight = s.phase === 'night' && s.day % 3 === 0;
 
           if (member && !member.alive) {
-            broadcastDeadChat(currentRoom, sender.username, text);
+            broadcastDeadOrSeanceChat(currentRoom, sender.username, text, false);
             continue;
           }
 
           if (s.phase === 'night') {
             if (member && isMafiaRole(member.role)) {
               broadcastMafiaNightChat(currentRoom, sender.username, text);
+            } else if (member && member.role === 'Medium' && seanceNight) {
+              broadcastDeadOrSeanceChat(currentRoom, sender.username, text, true);
             } else {
               sendWs(socket, {
                 type: 'chat',
@@ -1736,7 +2079,6 @@ server.on('upgrade', (req, socket) => {
             continue;
           }
 
-          // Day / Voting Public Chat: AI bots notice when a player is accused by name
           const lower = text.toLowerCase();
           for (const target of s.town.values()) {
             if (lower.includes(target.username.toLowerCase())) {
@@ -1808,14 +2150,15 @@ server.on('upgrade', (req, socket) => {
           if (typeof msg.boost === 'boolean') s.boost = msg.boost;
         }
       } else if (msg.type === 'shadowInput') {
+        // Only the 2 active 1v1 bracket duelists can control fighters on the mat
         const f = currentRoom.fighters.get(sender.username);
         if (f) {
           if (typeof msg.moveX === 'number') {
             f.moveX = msg.moveX;
-            if (f.cooldown === 0) f.state = msg.moveX !== 0 ? 'walk' : 'idle';
+            if (f.cooldown === 0 && f.stun === 0) f.state = msg.moveX !== 0 ? 'walk' : 'idle';
           }
-          if (msg.jump && f.y >= 440) {
-            f.vy = -16;
+          if (msg.jump && f.y >= 430 && f.stun === 0) {
+            f.vy = -14.5;
           }
           if (msg.action) {
             triggerFighterAction(currentRoom, f, msg.action);
