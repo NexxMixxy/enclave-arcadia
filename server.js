@@ -1,7 +1,6 @@
 // ============================================================================
-// ENCLAVE ARCADE — COMPLETE LIVE SERVER (server.js)
-// Includes Medium (Every-3-Nights Seance), Mayor, Executioner, Bodyguard,
-// Consigliere, and 2D 1v1 Tournament Bracket Stickman Shadow Fight
+// ENCLAVE ARCADE — ANTI-CRASH LIVE SERVER (server.js)
+// Zero external dependencies (Uses built-in node:http and node:crypto)
 // ============================================================================
 
 import http from 'node:http';
@@ -17,19 +16,30 @@ let globalWordPool = [
   'volcano', 'spaceship', 'pirate', 'waterfall', 'lightning'
 ];
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = 3000) {
+  const ctrl = new AbortController();
+  const id = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: ctrl.signal });
+  } finally {
+    clearTimeout(id);
+  }
+}
+
 async function syncDictionary(difficulty = 'ALL') {
   if (!GOOGLE_SCRIPT_URL.startsWith('http')) return;
   try {
-    const res = await fetch(
-      `${GOOGLE_SCRIPT_URL}?action=words&count=300&difficulty=${encodeURIComponent(difficulty)}`,
-      { redirect: 'follow' }
+    const res = await fetchWithTimeout(
+      `${GOOGLE_SCRIPT_URL}?action=words&count=250&difficulty=${encodeURIComponent(difficulty)}`,
+      { redirect: 'follow' },
+      3000
     );
     const data = await res.json();
     if (data.ok && Array.isArray(data.words) && data.words.length > 0) {
       globalWordPool = data.words;
     }
   } catch (err) {
-    console.error('[Google Sheet] Word sync skipped:', err.message);
+    // Non-blocking fallback to built-in word pool
   }
 }
 
@@ -39,7 +49,7 @@ async function pushScoresToGoogleSheet(players) {
     const humanPlayers = players.filter(p => !p.isAI);
     if (humanPlayers.length === 0) return;
     const topScore = Math.max(...players.map(p => p.score || 0));
-    await fetch(GOOGLE_SCRIPT_URL, {
+    await fetchWithTimeout(GOOGLE_SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -51,14 +61,12 @@ async function pushScoresToGoogleSheet(players) {
         }))
       }),
       redirect: 'follow'
-    });
-  } catch (err) {
-    console.error('[Google Sheet] Score save error:', err.message);
-  }
+    }, 3500);
+  } catch (err) {}
 }
 
 // ============================================================================
-// 1. HTTP SERVER
+// 1. HTTP SERVER (With 2.5s Auth Timeout Fallback)
 // ============================================================================
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -72,41 +80,46 @@ const server = http.createServer((req, res) => {
 
   if (req.method === 'POST' && req.url === '/api/auth') {
     let body = '';
-    req.on('data', chunk => { body += chunk; });
+    req.on('data', chunk => {
+      if (body.length < 8192) body += chunk;
+    });
     req.on('end', async () => {
+      let payload = {};
+      try { payload = JSON.parse(body || '{}'); } catch {}
+      const uname = String(payload.username || 'Player').trim();
+      const color = payload.color || '#6366f1';
+
       try {
-        const payload = JSON.parse(body || '{}');
         const passwordHash = crypto
           .createHash('sha256')
           .update(String(payload.password || ''))
           .digest('hex');
 
         if (GOOGLE_SCRIPT_URL.startsWith('http')) {
-          const sheetRes = await fetch(GOOGLE_SCRIPT_URL, {
+          const sheetRes = await fetchWithTimeout(GOOGLE_SCRIPT_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               action: payload.action,
-              username: payload.username,
+              username: uname,
               passwordHash,
-              color: payload.color
+              color
             }),
             redirect: 'follow'
-          });
+          }, 2500);
           const sheetData = await sheetRes.json();
           res.writeHead(200, { 'Content-Type': 'application/json' });
           return res.end(JSON.stringify(sheetData));
         }
-
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          ok: true,
-          user: { username: payload.username, color: payload.color || '#6366f1', wins: 0 }
-        }));
       } catch (err) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: false, error: err.message }));
+        // If Google Sheet is slow, allow player in immediately
       }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        ok: true,
+        user: { username: uname, color, wins: 0 }
+      }));
     });
     return;
   }
@@ -116,7 +129,7 @@ const server = http.createServer((req, res) => {
 });
 
 // ============================================================================
-// 2. BUILT-IN WEBSOCKET PROTOCOL
+// 2. BUILT-IN WEBSOCKET PROTOCOL (With Ping/Pong Support & Buffer Cap)
 // ============================================================================
 function sendWs(socket, obj) {
   if (!socket || socket.destroyed || !socket.writable) return;
@@ -139,12 +152,10 @@ function sendWs(socket, obj) {
       header.writeBigUInt64BE(BigInt(len), 2);
     }
     socket.write(Buffer.concat([header, payload]));
-  } catch (e) {
-    // Ignore write errors on closing sockets
-  }
+  } catch (e) {}
 }
 
-function parseWsFrames(buffer) {
+function parseWsFrames(buffer, socket) {
   const messages = [];
   let offset = 0;
 
@@ -179,7 +190,12 @@ function parseWsFrames(buffer) {
       buffer.copy(data, 0, offset + dataStart, offset + dataStart + len);
     }
 
-    if (opcode === 0x01) messages.push(data.toString('utf8'));
+    if (opcode === 0x09 && socket && !socket.destroyed) {
+      // Reply with WebSocket Pong frame
+      try { socket.write(Buffer.from([0x8a, 0x00])); } catch {}
+    } else if (opcode === 0x01) {
+      messages.push(data.toString('utf8'));
+    }
     offset += dataStart + len;
   }
 
@@ -303,7 +319,7 @@ function stopAllRoomIntervals(room) {
   clearInterval(room.aiInterval);
   clearInterval(room.snakeInterval);
   clearInterval(room.shadowInterval);
-  if (room.salemChatTimeouts) {
+  if (room.salemChatTimeouts && room.salemChatTimeouts.length > 0) {
     room.salemChatTimeouts.forEach(t => clearTimeout(t));
     room.salemChatTimeouts = [];
   }
@@ -457,7 +473,7 @@ function runAiWordGuessing(room, timeLeft) {
 // ============================================================================
 const SNAKE_WORLD_W = 3200;
 const SNAKE_WORLD_H = 3200;
-const MAX_TRAIL_NODES = 42;
+const MAX_TRAIL_NODES = 40;
 
 function spawnSnake(room, p) {
   const sx = 300 + Math.floor(Math.random() * (SNAKE_WORLD_W - 600));
@@ -487,7 +503,7 @@ function startSnakeGame(room) {
   room.snakes.clear();
 
   const orbColors = ['#fbbf24', '#34d399', '#60a5fa', '#f472b6', '#a78bfa'];
-  room.orbs = Array.from({ length: 85 }, () => ({
+  room.orbs = Array.from({ length: 80 }, () => ({
     x: 60 + Math.floor(Math.random() * (SNAKE_WORLD_W - 120)),
     y: 60 + Math.floor(Math.random() * (SNAKE_WORLD_H - 120)),
     r: 7,
@@ -603,7 +619,7 @@ function startSnakeGame(room) {
       eliminated.forEach(({ victim, killer }) => {
         const dropValue = Math.max(15, Math.floor((victim.mass * 0.65) / Math.max(4, Math.floor(victim.pts.length / 2))));
         victim.pts.forEach(([px, py], idx) => {
-          if (idx % 2 === 0 && room.orbs.length < 150) {
+          if (idx % 2 === 0 && room.orbs.length < 130) {
             room.orbs.push({
               x: px + Math.floor(Math.random() * 14 - 7),
               y: py + Math.floor(Math.random() * 14 - 7),
@@ -648,7 +664,7 @@ function startSnakeGame(room) {
 }
 
 // ============================================================================
-// 7. VILLAGE OF SALEM ENGINE (MEDIUM SEANCE EVERY 3 NIGHTS + 14 ROLES)
+// 7. VILLAGE OF SALEM ENGINE (ANTI-LAG VOTE SYNC & 14 ROLES)
 // ============================================================================
 const FAKE_CLAIM_ROLES = ['Sheriff', 'Doctor', 'Medium', 'Bodyguard', 'Vigilante', 'Villager'];
 
@@ -699,7 +715,6 @@ function broadcastMafiaNightChat(room, senderName, text) {
   }
 }
 
-// Medium Seance + Dead Chat Router (Every 3rd Night, living Mediums & Dead share the Seance channel!)
 function broadcastDeadOrSeanceChat(room, senderName, text, isLivingMedium = false) {
   if (!room.salem) return;
   const s = room.salem;
@@ -718,6 +733,21 @@ function broadcastDeadOrSeanceChat(room, senderName, text, isLivingMedium = fals
       });
     }
   }
+}
+
+// Lightweight vote tally broadcast so AI voting never lags the server or DOM
+function broadcastSalemVoteTallies(room) {
+  if (!room.salem) return;
+  const s = room.salem;
+  const voteCounts = {};
+  for (const [voterName, target] of s.votes.entries()) {
+    if (target !== 'SKIP') {
+      const voterObj = s.town.get(voterName);
+      const weight = voterObj && voterObj.mayorRevealed ? 3 : 1;
+      voteCounts[target] = (voteCounts[target] || 0) + weight;
+    }
+  }
+  broadcast(room, { type: 'salemVotes', votes: voteCounts });
 }
 
 function startSalemGame(room) {
@@ -759,7 +789,6 @@ function startSalemGame(room) {
     });
   });
 
-  // Assign Executioner a random living Town target
   const townCandidates = Array.from(townMap.values()).filter(
     t => isTownRole(t.role) && t.role !== 'Mayor'
   );
@@ -807,7 +836,6 @@ function announceFallenPlayer(room, victim, causeText) {
       day: room.salem.day
     });
 
-    // If an Executioner's target dies at night, Executioner becomes a Jester!
     room.salem.town.forEach(member => {
       if (member.alive && member.role === 'Executioner' && member.execTarget === victim.username && room.salem.phase === 'night') {
         member.role = 'Jester';
@@ -819,18 +847,9 @@ function announceFallenPlayer(room, victim, causeText) {
   broadcast(room, {
     type: 'chat',
     username: 'Salem Morgue',
-    text: `💀 ${victim.username} died (${causeText}). Their role was ${victim.role}.`,
-    style: 'system'
+    text: `💀 ${victim.username} died (${causeText}) — Role: ${victim.role}. 📜 Will: "${will || 'None'}"`,
+    style: 'will-reveal'
   });
-
-  if (will) {
-    broadcast(room, {
-      type: 'chat',
-      username: `📜 ${victim.username}'s Last Will`,
-      text: will,
-      style: 'will-reveal'
-    });
-  }
 }
 
 function sendSalemStateToAll(room) {
@@ -1013,9 +1032,6 @@ function runSalemPhaseLoop(room) {
   }, 1000);
 }
 
-// ============================================================================
-// NON-CHEATING SALEM AI (With Medium Seance Ghosts, Executioner & Mayor Logic)
-// ============================================================================
 function pickAiTargetWithoutCheating(ai, aliveOthers) {
   if (aliveOthers.length === 0) return null;
   const weighted = aliveOthers.map(t => ({
@@ -1035,7 +1051,6 @@ function scheduleNonCheatingSalemAI(room) {
   const aliveList = Array.from(s.town.values()).filter(t => t.alive);
   const deadAiList = Array.from(s.town.values()).filter(t => !t.alive && t.isAI);
 
-  // Dead AI ghosts whisper clues during Every-3rd-Night Seance!
   if (s.phase === 'night' && seanceNight && deadAiList.length > 0 && aliveList.length > 0) {
     const ghost = deadAiList[Math.floor(Math.random() * deadAiList.length)];
     const suspect = aliveList[Math.floor(Math.random() * aliveList.length)];
@@ -1050,13 +1065,15 @@ function scheduleNonCheatingSalemAI(room) {
       aliveList.forEach(m => {
         if (m.isAI && m.role === 'Medium') {
           m.aiLogs.push(`Seance N${s.day}: Ghost ${ghost.username} warned about ${suspect.username}`);
-          m.willText = `${m.username} the Medium | ${m.aiLogs.join('; ')}`;
+          m.willText = `${m.username} the Medium | ${m.aiLogs.slice(-3).join('; ')}`;
           m.susMap.set(suspect.username, (m.susMap.get(suspect.username) || 0) + 2.2);
         }
       });
     }, 4000);
     room.salemChatTimeouts.push(timerId);
   }
+
+  let chatterCount = 0;
 
   aliveList.filter(t => t.isAI).forEach(ai => {
     const aliveOthers = aliveList.filter(t => t.username !== ai.username);
@@ -1090,7 +1107,7 @@ function scheduleNonCheatingSalemAI(room) {
         if (pick) {
           s.nightActions.set(ai.username, pick.username);
           ai.aiLogs.push(`N${s.day}: Protected ${pick.username}`);
-          ai.willText = `${ai.username} the ${ai.role} | ${ai.aiLogs.join(', ')}`;
+          ai.willText = `${ai.username} the ${ai.role} | ${ai.aiLogs.slice(-3).join(', ')}`;
         }
       } else if (ai.role === 'Sheriff') {
         const pick = pickAiTargetWithoutCheating(ai, aliveOthers);
@@ -1100,7 +1117,7 @@ function scheduleNonCheatingSalemAI(room) {
         if (s.day > 1 && topSus && (ai.susMap.get(topSus.username) || 0) >= 2 && Math.random() < 0.6) {
           s.nightActions.set(ai.username, topSus.username);
           ai.aiLogs.push(`N${s.day}: Shot ${topSus.username}`);
-          ai.willText = `${ai.username} the Vigilante | ${ai.aiLogs.join(', ')}`;
+          ai.willText = `${ai.username} the Vigilante | ${ai.aiLogs.slice(-3).join(', ')}`;
         }
       } else if (ai.role === 'Werewolf' && fullMoon) {
         const pick = aliveOthers[Math.floor(Math.random() * aliveOthers.length)];
@@ -1119,7 +1136,6 @@ function scheduleNonCheatingSalemAI(room) {
         if (pick) s.nightActions.set(ai.username, pick.username);
       }
     } else if (s.phase === 'discussion') {
-      // AI Mayor might reveal on Day 2+
       if (ai.role === 'Mayor' && !ai.mayorRevealed && s.day >= 2 && Math.random() < 0.5) {
         const revTimer = setTimeout(() => {
           if (!room.salem || !ai.alive || ai.mayorRevealed) return;
@@ -1135,10 +1151,12 @@ function scheduleNonCheatingSalemAI(room) {
         room.salemChatTimeouts.push(revTimer);
       }
 
-      const speakChance = style === 'chaotic' ? 0.75 : (style === 'deductive' ? 0.6 : 0.45);
-      if (Math.random() > speakChance) return;
+      // Cap AI discussion messages to at most 4 bots per day so chat never floods
+      const speakChance = style === 'chaotic' ? 0.65 : (style === 'deductive' ? 0.5 : 0.4);
+      if (chatterCount >= 4 || Math.random() > speakChance) return;
+      chatterCount++;
 
-      const delay = 2200 + Math.floor(Math.random() * 14000);
+      const delay = 2500 + chatterCount * 3500;
       const timerId = setTimeout(() => {
         if (!room.salem || room.salem.phase !== 'discussion' || !ai.alive) return;
         const currentOthers = Array.from(s.town.values()).filter(t => t.alive && t.username !== ai.username);
@@ -1150,39 +1168,24 @@ function scheduleNonCheatingSalemAI(room) {
           const latestLog = ai.aiLogs[ai.aiLogs.length - 1];
           line = `${ai.role} claim here! Latest log: ${latestLog}. Thoughts?`;
         } else if (ai.role === 'Executioner' && ai.execTarget) {
-          line = `I checked ${ai.execTarget} last night and they came back SUSPICIOUS! We need to trial ${ai.execTarget} today!`;
+          line = `I checked ${ai.execTarget} last night and they came back SUSPICIOUS! We should trial ${ai.execTarget}!`;
           aliveList.forEach(other => {
             if (other.isAI) other.susMap.set(ai.execTarget, (other.susMap.get(ai.execTarget) || 0) + 1.1);
           });
         } else if (ai.role === 'Jester') {
-          const jesterLines = [
-            `Wait why is everyone looking at me?? I'm totally ${ai.fakeClaim}, trust me bro.`,
-            `I think ${randomPeer.username} is evil, source: it came to me in a dream.`,
-            `Don't vote me! If I die the town loses its best "Doctor" 👀`
-          ];
-          line = jesterLines[Math.floor(Math.random() * jesterLines.length)];
+          line = `Wait why is everyone looking at me?? I'm totally ${ai.fakeClaim}, trust me bro.`;
           aliveList.forEach(other => {
             if (other.isAI && other.username !== ai.username) {
               other.susMap.set(ai.username, (other.susMap.get(ai.username) || 0) + 1.2);
             }
           });
         } else if (isEvilRole(ai.role)) {
-          const bluffLines = [
-            `I claim ${ai.fakeClaim}. Honestly ${randomPeer.username} has been way too quiet today, kinda sus.`,
-            `Look at the Graveyard roles—there's still evil out there. What is ${randomPeer.username} claiming?`,
-            `Idk about you guys, but ${randomPeer.username}'s voting pattern feels super sketchy to me.`
-          ];
-          line = bluffLines[Math.floor(Math.random() * bluffLines.length)];
+          line = `I claim ${ai.fakeClaim}. Honestly ${randomPeer.username} has been way too quiet today, kinda sus.`;
           aliveList.forEach(other => {
             if (other.isAI) other.susMap.set(randomPeer.username, (other.susMap.get(randomPeer.username) || 0) + 0.7);
           });
         } else {
-          const townLines = [
-            `${randomPeer.username}, any leads or Last Will to share with the Town?`,
-            `Check the Graveyard wills on the right—${randomPeer.username}'s claim might conflict.`,
-            `Careful of Executioner pushes, let's get role claims before locking votes on ${randomPeer.username}.`
-          ];
-          line = townLines[Math.floor(Math.random() * townLines.length)];
+          line = `${randomPeer.username}, any leads or Last Will to share with the Town?`;
         }
 
         if (line) {
@@ -1192,7 +1195,7 @@ function scheduleNonCheatingSalemAI(room) {
 
       room.salemChatTimeouts.push(timerId);
     } else if (s.phase === 'voting') {
-      const delay = 2500 + Math.floor(Math.random() * 11000);
+      const delay = 2000 + Math.floor(Math.random() * 9000);
       const timerId = setTimeout(() => {
         if (!room.salem || room.salem.phase !== 'voting' || !ai.alive) return;
         const currentOthers = Array.from(s.town.values()).filter(t => t.alive && t.username !== ai.username);
@@ -1202,14 +1205,14 @@ function scheduleNonCheatingSalemAI(room) {
           const execT = s.town.get(ai.execTarget);
           if (execT && execT.alive) {
             s.votes.set(ai.username, ai.execTarget);
-            sendSalemStateToAll(room);
+            broadcastSalemVoteTallies(room);
             return;
           }
         }
 
         if (Math.random() < 0.25) {
           s.votes.set(ai.username, 'SKIP');
-          sendSalemStateToAll(room);
+          broadcastSalemVoteTallies(room);
           return;
         }
 
@@ -1224,7 +1227,7 @@ function scheduleNonCheatingSalemAI(room) {
         const target = pickAiTargetWithoutCheating(ai, pool);
         if (target) {
           s.votes.set(ai.username, target.username);
-          sendSalemStateToAll(room);
+          broadcastSalemVoteTallies(room);
         }
       }, delay);
 
@@ -1240,9 +1243,9 @@ function advanceSalemPhase(room) {
   if (s.phase === 'night') {
     const fullMoon = s.day % 2 === 0;
     const healedSet = new Set();
-    const guardedBy = new Map(); // targetName -> bodyguardName
+    const guardedBy = new Map();
     const visitorsTo = new Map();
-    const nightKills = []; // { victimName, attackerName, cause, unstoppable }
+    const nightKills = [];
     let mafiaKillIssued = false;
 
     const recordVisit = (visitor, target) => {
@@ -1250,6 +1253,12 @@ function advanceSalemPhase(room) {
       if (!visitorsTo.has(target)) visitorsTo.set(target, []);
       visitorsTo.get(target).push(visitor);
     };
+
+    // Pass 1: Record all visits first so Werewolf Full-Moon Rampage sees all visitors accurately
+    for (const [actorName, targetName] of s.nightActions.entries()) {
+      const actor = s.town.get(actorName);
+      if (actor && actor.alive) recordVisit(actorName, targetName);
+    }
 
     while (s.jesterHauntQueue.length > 0) {
       const haunt = s.jesterHauntQueue.shift();
@@ -1265,10 +1274,10 @@ function advanceSalemPhase(room) {
       }
     }
 
+    // Pass 2: Execute night abilities
     for (const [actorName, targetName] of s.nightActions.entries()) {
       const actor = s.town.get(actorName);
       if (!actor || !actor.alive) continue;
-      recordVisit(actorName, targetName);
 
       if (actor.role === 'Doctor') {
         healedSet.add(targetName);
@@ -1292,7 +1301,7 @@ function advanceSalemPhase(room) {
 
           if (actor.isAI) {
             actor.aiLogs.push(`N${s.day}: ${inspected.username} (${looksSus ? 'SUS!' : 'Inno'})`);
-            actor.willText = `${actor.username} the Sheriff | ${actor.aiLogs.join(', ')}`;
+            actor.willText = `${actor.username} the Sheriff | ${actor.aiLogs.slice(-3).join(', ')}`;
             if (looksSus) actor.susMap.set(inspected.username, (actor.susMap.get(inspected.username) || 0) + 4);
           }
         }
@@ -1356,7 +1365,6 @@ function advanceSalemPhase(room) {
       if (!victim || !victim.alive) return;
       if (victim.role === 'Pestilence') return;
 
-      // Bodyguard Interception Duel!
       if (!k.unstoppable && guardedBy.has(victim.username) && k.attackerName) {
         const bgName = guardedBy.get(victim.username);
         const bgObj = s.town.get(bgName);
@@ -1440,7 +1448,6 @@ function advanceSalemPhase(room) {
         announceFallenPlayer(room, exiled, `Exiled by Town Trial (${topVotes} votes)`);
         s.report = `The Town exiled ${exiled.username} (${exiled.role})!`;
 
-        // Check if any living Executioner had this player as their target
         s.town.forEach(member => {
           if (member.alive && member.role === 'Executioner' && member.execTarget === exiled.username) {
             const ep = getAllParticipants(room).find(u => u.username === member.username);
@@ -1554,7 +1561,6 @@ function createFighterState(p, sideIndex) {
 function startShadowFight(room) {
   stopAllRoomIntervals(room);
 
-  // Ensure at least 4 competitors for a clean 1v1 Bracket (Semifinals -> Finals)
   if (getAllParticipants(room).length < 4) {
     room.settings.aiCount = Math.max(room.settings.aiCount, 4 - room.players.size);
     rebuildRoomAI(room);
@@ -1562,7 +1568,6 @@ function startShadowFight(room) {
   }
 
   const competitors = [...getAllParticipants(room)];
-  // Shuffle bracket seeding
   for (let i = competitors.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [competitors[i], competitors[j]] = [competitors[j], competitors[i]];
@@ -1583,7 +1588,6 @@ function launchNextBracketDuel(room) {
   const b = room.shadowBracket;
   if (!b) return;
 
-  // If current round pool is exhausted, advance to next bracket stage!
   if (b.matchIndex * 2 >= b.currentPool.length) {
     if (b.nextRoundWinners.length <= 1) {
       const champ = b.nextRoundWinners[0] || b.currentPool[0];
@@ -1613,16 +1617,9 @@ function launchNextBracketDuel(room) {
   const p1 = b.currentPool[b.matchIndex * 2];
   const p2 = b.currentPool[b.matchIndex * 2 + 1];
 
-  // Odd player gets a bye to the next round
   if (p1 && !p2) {
     b.nextRoundWinners.push(p1);
     b.matchIndex++;
-    broadcast(room, {
-      type: 'chat',
-      username: 'Dojo Bracket',
-      text: `🥋 ${p1.username} receives a bracket bye into the next round!`,
-      style: 'system'
-    });
     launchNextBracketDuel(room);
     return;
   }
@@ -1671,7 +1668,6 @@ function tickShadowDuel(room, stageName, totalMatchesInRound) {
     const opponent = fighters.find(o => o.username !== f.username);
     if (!opponent) return;
 
-    // Paced Martial Arts AI Decision Tree
     if (f.isAI && f.stun === 0) {
       const dx = opponent.x - f.x;
       const dist = Math.abs(dx);
@@ -1683,12 +1679,10 @@ function tickShadowDuel(room, stageName, totalMatchesInRound) {
         f.moveX = f.facing;
         if (f.cooldown === 0) f.state = 'walk';
       } else if (dist < 44) {
-        // Step back slightly for spacing like real Shadow Fight
         f.moveX = Math.random() < 0.35 ? -f.facing : 0;
       } else {
         f.moveX = 0;
         if (f.cooldown === 0 && Math.random() < strikeRate) {
-          // React with block if opponent is mid-slash
           if (opponent.state === 'slash' && Math.random() < 0.45) {
             triggerFighterAction(room, f, 'block');
           } else {
@@ -1699,7 +1693,6 @@ function tickShadowDuel(room, stageName, totalMatchesInRound) {
       }
     }
 
-    // Deliberate 2D Movement + Knockback Friction
     const walkVel = (f.state !== 'block' && f.stun === 0 && f.cooldown < 6) ? f.moveX * 4.4 : 0;
     f.x = Math.max(125, Math.min(835, Math.round(f.x + walkVel + f.vx)));
     f.vx *= 0.76;
@@ -1709,7 +1702,6 @@ function tickShadowDuel(room, stageName, totalMatchesInRound) {
       f.facing = Math.sign(f.moveX);
     }
 
-    // Gravity on 2D Dojo Floor (y = 430)
     f.y = Math.round(f.y + f.vy);
     if (f.y < 430) {
       f.vy += 1.45;
@@ -1749,7 +1741,6 @@ function triggerFighterAction(room, attacker, action) {
   }
 
   attacker.state = action;
-  // Deliberate, paced frame data & knockback velocities
   const stats = {
     punch: { range: 62, dmg: 9, cd: 10, stun: 5, knockVx: 7 },
     kick: { range: 78, dmg: 14, cd: 16, stun: 8, knockVx: 13 },
@@ -1773,7 +1764,7 @@ function triggerFighterAction(room, attacker, action) {
         target.state = 'hitstun';
         target.stun = stats.stun;
       } else {
-        attacker.cooldown += 4; // Slight parry stagger when hitting a guard
+        attacker.cooldown += 4;
       }
 
       room.effects.push({
@@ -1832,9 +1823,16 @@ server.on('upgrade', (req, socket) => {
   let currentRoom = null;
   let rx = Buffer.alloc(0);
 
+  socket.on('error', () => {});
+
   socket.on('data', async (chunk) => {
     rx = Buffer.concat([rx, chunk]);
-    const parsed = parseWsFrames(rx);
+    if (rx.length > 524288) {
+      rx = Buffer.alloc(0);
+      return;
+    }
+
+    const parsed = parseWsFrames(rx, socket);
     rx = parsed.remaining;
 
     if (parsed.close) return socket.end();
@@ -1843,10 +1841,25 @@ server.on('upgrade', (req, socket) => {
       let msg;
       try { msg = JSON.parse(raw); } catch { continue; }
 
+      if (msg.type === 'ping') {
+        sendWs(socket, { type: 'pong' });
+        continue;
+      }
+
       if (msg.type === 'join') {
         currentRoom = getRoom(msg.roomId || 'MAIN');
+        const uname = String(msg.player?.username || 'Player').trim();
+
+        // Remove any old/ghost socket with the same username so reconnects never duplicate!
+        for (const [oldSock, oldP] of currentRoom.players.entries()) {
+          if (oldSock !== socket && oldP.username.toLowerCase() === uname.toLowerCase()) {
+            currentRoom.players.delete(oldSock);
+            try { oldSock.destroy(); } catch {}
+          }
+        }
+
         const team = currentRoom.players.size % 2 === 0 ? 'A' : 'B';
-        currentRoom.players.set(socket, { ...msg.player, score: 0, team, isAI: false });
+        currentRoom.players.set(socket, { ...msg.player, username: uname, score: 0, team, isAI: false });
         ensureRoomHost(currentRoom);
         syncRoster(currentRoom);
 
@@ -1865,7 +1878,7 @@ server.on('upgrade', (req, socket) => {
         broadcast(currentRoom, {
           type: 'chat',
           username: 'System',
-          text: `${msg.player.username} joined Room ${currentRoom.roomId}.`,
+          text: `${uname} connected to Room ${currentRoom.roomId}.`,
           style: 'system'
         });
         continue;
@@ -1918,7 +1931,7 @@ server.on('upgrade', (req, socket) => {
           currentRoom.settings = { ...currentRoom.settings, ...msg.settings };
           currentRoom.mode = msg.settings.mode || currentRoom.mode;
           rebuildRoomAI(currentRoom);
-          await syncDictionary(currentRoom.settings.difficulty);
+          syncDictionary(currentRoom.settings.difficulty);
         }
 
         currentRoom.round = 1;
@@ -2017,7 +2030,7 @@ server.on('upgrade', (req, socket) => {
           }
         } else if (s.phase === 'voting') {
           s.votes.set(sender.username, msg.target);
-          sendSalemStateToAll(currentRoom);
+          broadcastSalemVoteTallies(currentRoom);
         }
       } else if (msg.type === 'garticEntry') {
         currentRoom.garticChain.push({
@@ -2052,7 +2065,6 @@ server.on('upgrade', (req, socket) => {
         const text = String(msg.text || '').trim();
         if (!text) continue;
 
-        // VILLAGE OF SALEM CHAT ROUTING (Dead Chat, Medium Seance, Mafia Night Chat, & Public Day Chat)
         if (currentRoom.mode === 'salem' && currentRoom.salem) {
           const s = currentRoom.salem;
           const member = s.town.get(sender.username);
@@ -2150,7 +2162,6 @@ server.on('upgrade', (req, socket) => {
           if (typeof msg.boost === 'boolean') s.boost = msg.boost;
         }
       } else if (msg.type === 'shadowInput') {
-        // Only the 2 active 1v1 bracket duelists can control fighters on the mat
         const f = currentRoom.fighters.get(sender.username);
         if (f) {
           if (typeof msg.moveX === 'number') {
