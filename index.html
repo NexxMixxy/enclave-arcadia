@@ -561,11 +561,11 @@
     .atk-block { background: rgba(59, 130, 246, 0.75); }
     .atk-jump { background: rgba(16, 185, 129, 0.75); }
 
-    /* Gartic Overlay */
+    /* Gartic & Salem Stage Overlays */
     .stage-overlay {
       position: absolute;
       inset: 0;
-      background: rgba(15, 17, 22, 0.95);
+      background: rgba(15, 17, 22, 0.96);
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -576,8 +576,8 @@
 
     .gartic-box {
       width: 100%;
-      max-width: 650px;
-      max-height: 90%;
+      max-width: 680px;
+      max-height: 92%;
       display: flex;
       flex-direction: column;
       gap: 12px;
@@ -618,6 +618,67 @@
       background: #ffffff;
       border-radius: 6px;
       margin-top: 8px;
+    }
+
+    /* Village of Salem UI */
+    .salem-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 16px;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .salem-role-badge {
+      padding: 5px 12px;
+      border-radius: 6px;
+      font-weight: 800;
+      font-size: 12px;
+      letter-spacing: 0.4px;
+    }
+    .role-Killer { background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid #ef4444; }
+    .role-Doctor { background: rgba(16, 185, 129, 0.2); color: #6ee7b7; border: 1px solid #10b981; }
+    .role-Sheriff { background: rgba(59, 130, 246, 0.2); color: #93c5fd; border: 1px solid #3b82f6; }
+    .role-Villager { background: rgba(156, 163, 175, 0.2); color: #e5e7eb; border: 1px solid #6b7280; }
+
+    .salem-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
+      gap: 10px;
+      overflow-y: auto;
+      padding: 4px;
+    }
+
+    .salem-card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      text-align: center;
+      transition: border-color 0.15s;
+    }
+    .salem-card.dead {
+      opacity: 0.42;
+      filter: grayscale(0.9);
+    }
+    .salem-card.selected-target {
+      border-color: var(--warning);
+      box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.3);
+    }
+
+    .salem-votes {
+      font-size: 11px;
+      color: var(--warning);
+      font-weight: 700;
+      min-height: 16px;
     }
 
     /* Toolbar */
@@ -834,6 +895,7 @@
       <button type="button" class="mode-tab" data-mode="hangman">Team Hangman</button>
       <button type="button" class="mode-tab" data-mode="snake">3D Snake.io</button>
       <button type="button" class="mode-tab" data-mode="shadow">Shadow Fight</button>
+      <button type="button" class="mode-tab" data-mode="salem">Village of Salem</button>
     </nav>
 
     <div class="topbar-right">
@@ -868,8 +930,8 @@
         </div>
 
         <div class="setting-row">
-          <span>Draw / Round Time (s)</span>
-          <input type="number" id="setDrawTime" value="75" min="25" max="180" />
+          <span>Draw / Phase Time (s)</span>
+          <input type="number" id="setDrawTime" value="75" min="20" max="180" />
         </div>
 
         <div class="setting-row">
@@ -955,6 +1017,28 @@
           </div>
         </div>
 
+        <!-- VILLAGE OF SALEM (MAFIA) TOWN OVERLAY -->
+        <div id="salemPanel" class="stage-overlay hidden">
+          <div class="gartic-box">
+            <div class="salem-header">
+              <div>
+                <h3 id="salemPhaseTitle">Village of Salem — Waiting to Start</h3>
+                <p id="salemInstruction" style="font-size:12px;color:var(--text-dim);">Host can press Start / Apply Rules to deal secret roles.</p>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span id="salemMyRoleBadge" class="salem-role-badge role-Villager">Role: Villager</span>
+                <button type="button" id="btnSalemSkipVote" class="btn-tool hidden">Skip Vote</button>
+              </div>
+            </div>
+
+            <div id="salemReportBanner" class="gartic-prompt-banner">
+              Town Square is quiet. Secret roles: Serial Killer (Mafia), Doctor, Sheriff, and Villagers.
+            </div>
+
+            <div id="salemTownGrid" class="salem-grid"></div>
+          </div>
+        </div>
+
         <!-- ON-SCREEN MOBILE / TOUCH CONTROLS OVERLAY (For Snake.io & Shadow Fight) -->
         <div id="mobileControlsOverlay" class="mobile-overlay hidden">
           <!-- Left Virtual Thumb Joystick -->
@@ -966,10 +1050,8 @@
 
           <!-- Right Action Buttons -->
           <div class="action-buttons" id="mobileActionButtons">
-            <!-- Snake Boost Button -->
             <button type="button" id="btnTouchBoost" class="touch-btn boost-btn hidden">BOOST</button>
 
-            <!-- Shadow Fight Martial Arts Buttons -->
             <div id="shadowTouchCluster" class="shadow-cluster hidden">
               <button type="button" class="touch-btn atk-punch" data-action="punch">PUNCH</button>
               <button type="button" class="touch-btn atk-kick" data-action="kick">KICK</button>
