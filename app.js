@@ -3,7 +3,7 @@
 // ============================================================================
 
 // 1. Point this to your Render Web Service URL
-const RENDER_SERVER_URL = "https://enclave-arcade-backend.onrender.com";
+const RENDER_SERVER_URL = "https://enclave-arcade-live.onrender.com";
 const WS_URL = RENDER_SERVER_URL.replace(/^http/, "ws");
 
 const state = {
