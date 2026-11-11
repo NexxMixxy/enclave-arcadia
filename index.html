@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Enclave Arcadia</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- AUTH MODAL (SIGN UP / LOG IN) -->
+  <div id="authModal" class="modal-backdrop">
+    <div class="auth-card">
+      <div class="auth-brand">ENCLAVE ARCADE</div>
+      <p class="auth-sub">Sign in or create an account to play live</p>
+
+      <div class="auth-tabs">
+        <button id="tabLogin" class="auth-tab active">Log In</button>
+        <button id="tabSignup" class="auth-tab">Sign Up</button>
+      </div>
+
+      <form id="authForm" autocomplete="off">
+        <label class="field-label">Username</label>
+        <input type="text" id="authUsername" class="text-input" placeholder="Enter username" required minlength="2" maxlength="18" />
+
+        <label class="field-label">Password</label>
+        <input type="password" id="authPassword" class="text-input" placeholder="Enter password" required minlength="4" />
+
+        <div id="signupExtra" class="hidden">
+          <label class="field-label">Profile Badge Color</label>
+          <input type="color" id="authColor" class="color-picker" value="#5865f2" />
+        </div>
+
+        <label class="field-label">Room Code</label>
+        <input type="text" id="authRoom" class="text-input" value="MAIN" placeholder="e.g. MAIN or VIP1" required maxlength="10" />
+
+        <div id="authError" class="auth-error"></div>
+        <button type="submit" id="authSubmitBtn" class="btn-primary full-width">Enter Arcade</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- TOP NAVIGATION BAR -->
+  <header class="topbar">
+    <div class="brand-group">
+      <span class="logo-text">ENCLAVE ARCADE</span>
+      <span id="roomBadge" class="room-pill">Room: MAIN</span>
+      <span id="connStatus" class="status-dot offline" title="Server Status"></span>
+    </div>
+
+    <nav class="mode-nav">
+      <button class="mode-tab active" data-mode="skribbl">Skribbl Classic</button>
+      <button class="mode-tab" data-mode="gartic">Gartic Chain</button>
+      <button class="mode-tab" data-mode="hangman">Team Hangman</button>
+      <button class="mode-tab" data-mode="snake">Live Snake.io</button>
+    </nav>
+
+    <div class="user-chip">
+      <div id="myBadge" class="avatar-circle">E</div>
+      <div class="user-meta">
+        <span id="myUsername" class="user-name">Guest</span>
+        <span id="myTotalWins" class="user-stats">0 Wins</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN 3-COLUMN WORKSPACE -->
+  <main class="workspace">
+
+    <!-- LEFT SIDEBAR: LIVE PLAYERS & EDITABLE ROOM SETTINGS -->
+    <aside class="sidebar-left">
+      <div class="panel-block">
+        <div class="panel-header">
+          <span>Players Online</span>
+          <button id="btnSwitchTeam" class="btn-mini hidden">Swap Team</button>
+        </div>
+        <div id="playerRoster" class="roster-list"></div>
+      </div>
+
+      <div class="panel-block settings-panel">
+        <div class="panel-header">Match Settings</div>
+
+        <div class="setting-row">
+          <span>Draw Time (sec)</span>
+          <input type="number" id="setDrawTime" value="80" min="20" max="180" />
+        </div>
+
+        <div class="setting-row">
+          <span>Rounds</span>
+          <input type="number" id="setRounds" value="3" min="1" max="10" />
+        </div>
+
+        <div class="setting-row">
+          <span>Hangman Chances</span>
+          <input type="number" id="setHangmanChances" value="10" min="1" max="30" />
+        </div>
+
+        <div class="setting-row">
+          <span>Dictionary</span>
+          <select id="setDifficulty">
+            <option value="ALL">All Words</option>
+            <option value="Easy">Easy</option>
+            <option value="Medium">Medium</option>
+            <option value="Hard">Hard</option>
+          </select>
+        </div>
+
+        <button id="btnStartMatch" class="btn-primary full-width">Start / Apply Rules</button>
+      </div>
+    </aside>
+
+    <!-- CENTER STAGE: HUD + CANVAS + OVERLAYS + TOOLBAR -->
+    <section class="center-stage">
+      <div class="stage-hud">
+        <div class="hud-left">
+          <span id="hudRound" class="hud-sub">Round 1 / 3</span>
+          <span id="hudRole" class="hud-role">Waiting to start...</span>
+        </div>
+
+        <div id="hudWordMask" class="word-mask">_ _ _ _ _ _</div>
+
+        <div class="hud-right">
+          <div id="hudHangmanBox" class="hangman-pill hidden">
+            Chances Left: <strong id="hudChancesLeft">10 / 10</strong>
+          </div>
+          <div id="hudTimer" class="timer-pill">80s</div>
+        </div>
+      </div>
+
+      <div class="canvas-wrap">
+        <canvas id="arcadeCanvas" width="960" height="540"></canvas>
+
+        <!-- GARTIC SENTENCE & ALBUM OVERLAY -->
+        <div id="garticPanel" class="stage-overlay hidden">
+          <div class="gartic-box">
+            <h3 id="garticStepTitle">Step 1: Write a sentence for the next player to draw</h3>
+            <p id="garticTargetPrompt" class="gartic-prompt-banner hidden"></p>
+
+            <div id="garticPromptControls" class="gartic-input-group">
+              <input type="text" id="garticSentenceInput" class="text-input" placeholder="e.g. An astronaut riding a skateboard on Mars" />
+              <button id="btnGarticSubmitText" class="btn-primary">Submit Sentence</button>
+            </div>
+
+            <div id="garticAlbumList" class="gartic-album"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- DRAWING & IMAGE DOWNLOAD TOOLBAR -->
+      <div id="drawToolbar" class="draw-toolbar">
+        <div id="colorPalette" class="swatch-row"></div>
+
+        <div class="tool-controls">
+          <label class="size-label">Brush <input type="range" id="brushSize" min="2" max="32" value="6" /></label>
+          <button id="btnEraser" class="btn-tool">Eraser</button>
+          <button id="btnClearCanvas" class="btn-tool">Clear</button>
+          <button id="btnSubmitDrawing" class="btn-primary hidden">Submit Drawing</button>
+          <button id="btnDownloadPng" class="btn-tool accent">Download PNG</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT SIDEBAR: LIVE GUESSES & CHAT -->
+    <aside class="sidebar-right">
+      <div class="panel-header chat-header">Live Guesses &amp; Chat</div>
+      <div id="chatMessages" class="chat-feed"></div>
+      <form id="chatForm" class="chat-bar" autocomplete="off">
+        <input type="text" id="chatInput" placeholder="Type a guess or message..." />
+      </form>
+    </aside>
+
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
