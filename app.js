@@ -1,6 +1,6 @@
 // ============================================================================
 // ENCLAVE ARCADE — LIVE MULTIPLAYER CLIENT (app.js)
-// Includes 3200x3200 Camera + Mini-Map Snake.io & Village of Salem (Mafia)
+// Expanded Village of Salem Roles, Last Wills, & Social Deduction AI Controls
 // ============================================================================
 
 const RENDER_SERVER_URL = "https://enclave-arcade-live.onrender.com";
@@ -216,7 +216,7 @@ function updateHostPermissionsUI() {
 
   const controls = [
     "setDrawTime", "setRounds", "setHangmanChances",
-    "setDifficulty", "setAiCount", "setAiTier", "btnStartMatch"
+    "setDifficulty", "setAiCount", "setAiTier", "setSalemAiStyle", "btnStartMatch"
   ];
   controls.forEach(id => {
     const el = document.getElementById(id);
@@ -244,6 +244,7 @@ function applyModeUI(newMode, settings) {
     document.getElementById("setDifficulty").value = settings.difficulty || "ALL";
     if (settings.aiCount !== undefined) document.getElementById("setAiCount").value = String(settings.aiCount);
     if (settings.aiTier) document.getElementById("setAiTier").value = settings.aiTier;
+    if (settings.salemAiStyle) document.getElementById("setSalemAiStyle").value = settings.salemAiStyle;
   }
 
   const hideToolbar = newMode === "snake" || newMode === "shadow" || newMode === "salem";
@@ -266,7 +267,7 @@ function applyModeUI(newMode, settings) {
     document.getElementById("hudTimer").textContent = "DOJO";
   } else if (newMode === "salem") {
     document.getElementById("hudWordMask").textContent = "VILLAGE OF SALEM";
-    document.getElementById("hudRole").textContent = "Deduce the Serial Killer before the Town falls!";
+    document.getElementById("hudRole").textContent = "Keep your Last Will updated & deduce the evil roles!";
   }
 
   updateMobileControlsUI();
@@ -291,7 +292,8 @@ document.getElementById("btnStartMatch").onclick = () => {
     hangmanMaxGuesses: Number(document.getElementById("setHangmanChances").value) || 10,
     difficulty: document.getElementById("setDifficulty").value,
     aiCount: Number(document.getElementById("setAiCount").value) || 0,
-    aiTier: document.getElementById("setAiTier").value || "medium"
+    aiTier: document.getElementById("setAiTier").value || "medium",
+    salemAiStyle: document.getElementById("setSalemAiStyle").value || "deductive"
   };
   sendPacket("startGame", { settings });
 };
@@ -345,7 +347,6 @@ canvas.addEventListener("pointerdown", (e) => {
 canvas.addEventListener("pointermove", (e) => {
   const pt = getCanvasPoint(e);
 
-  // In 3200x3200 Snake.io, player head is always centered at (480, 270) on screen
   if (state.mode === "snake" && !state.mobileControls) {
     const angle = Math.atan2(pt.y - 270, pt.x - 480);
     sendPacket("snakeInput", { angle });
@@ -399,22 +400,19 @@ document.getElementById("btnDownloadPng").onclick = () => {
 };
 
 // ============================================================================
-// 5. 3200x3200 CAMERA SNAKE.IO RENDERER + SECTOR MINI-MAP (NO SCREEN BLOAT)
+// 5. 3200x3200 CAMERA SNAKE.IO RENDERER + SECTOR MINI-MAP
 // ============================================================================
 function render3DSnakeArena(snakes, orbs, worldW, worldH) {
   ctx.fillStyle = "#0b0d14";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // Locate local player's snake head for camera tracking
   const mySnake = snakes.find(s => s.username.toLowerCase() === state.me.username.toLowerCase()) || snakes[0];
   const camX = mySnake && mySnake.body.length > 0 ? mySnake.body[0][0] : worldW / 2;
   const camY = mySnake && mySnake.body.length > 0 ? mySnake.body[0][1] : worldH / 2;
 
   ctx.save();
-  // Fixed 1:1 camera zoom centered on your snake head
   ctx.translate(canvas.width / 2 - camX, canvas.height / 2 - camY);
 
-  // World Floor & Border
   ctx.fillStyle = "#121624";
   ctx.fillRect(0, 0, worldW, worldH);
 
@@ -438,12 +436,10 @@ function render3DSnakeArena(snakes, orbs, worldW, worldH) {
     ctx.stroke();
   }
 
-  // Danger Laser Arena Boundary
   ctx.strokeStyle = "#ef4444";
   ctx.lineWidth = 6;
   ctx.strokeRect(0, 0, worldW, worldH);
 
-  // Render Orbs inside camera view
   orbs.forEach(o => {
     if (Math.abs(o.x - camX) > 540 || Math.abs(o.y - camY) > 330) return;
     const r = o.r || 6;
@@ -457,12 +453,10 @@ function render3DSnakeArena(snakes, orbs, worldW, worldH) {
     ctx.fill();
   });
 
-  // Render Snakes (Capped radius so large snakes never bloat the screen)
   snakes.forEach(s => {
     if (!s.body || s.body.length === 0) return;
     const baseRadius = Math.min(15, 9.5 + Math.min(5.5, (s.mass || 60) / 180));
 
-    // 1. 3D Floor Shadow
     ctx.fillStyle = "rgba(0, 0, 0, 0.42)";
     for (let i = s.body.length - 1; i >= 0; i--) {
       const [sx, sy] = s.body[i];
@@ -472,7 +466,6 @@ function render3DSnakeArena(snakes, orbs, worldW, worldH) {
       ctx.fill();
     }
 
-    // 2. 3D Lit Spheres
     for (let i = s.body.length - 1; i >= 0; i--) {
       const [sx, sy] = s.body[i];
       if (Math.abs(sx - camX) > 560 || Math.abs(sy - camY) > 350) continue;
@@ -487,7 +480,6 @@ function render3DSnakeArena(snakes, orbs, worldW, worldH) {
       ctx.fill();
     }
 
-    // 3. Head Eyes & Mass Tag
     const [hx, hy] = s.body[0];
     if (Math.abs(hx - camX) <= 560 && Math.abs(hy - camY) <= 350) {
       const ang = s.angle || 0;
@@ -512,9 +504,7 @@ function render3DSnakeArena(snakes, orbs, worldW, worldH) {
 
   ctx.restore();
 
-  // ==========================================================================
-  // TOP-RIGHT SECTOR MINI-MAP & LIVE MASS HUD
-  // ==========================================================================
+  // Sector Mini-Map
   const mapSize = 136;
   const mapX = canvas.width - mapSize - 14;
   const mapY = 14;
@@ -525,7 +515,6 @@ function render3DSnakeArena(snakes, orbs, worldW, worldH) {
   ctx.fillRect(mapX, mapY, mapSize, mapSize);
   ctx.strokeRect(mapX, mapY, mapSize, mapSize);
 
-  // 4x4 Sector Grid Lines on Mini-Map
   ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
   ctx.lineWidth = 1;
   for (let i = 1; i < 4; i++) {
@@ -538,7 +527,6 @@ function render3DSnakeArena(snakes, orbs, worldW, worldH) {
     ctx.stroke();
   }
 
-  // Current Camera Viewport Box inside Mini-Map
   const vw = (canvas.width / worldW) * mapSize;
   const vh = (canvas.height / worldH) * mapSize;
   const vx = mapX + ((camX - canvas.width / 2) / worldW) * mapSize;
@@ -546,7 +534,6 @@ function render3DSnakeArena(snakes, orbs, worldW, worldH) {
   ctx.strokeStyle = "rgba(255, 255, 255, 0.55)";
   ctx.strokeRect(vx, vy, vw, vh);
 
-  // Plot all snakes on the Mini-Map
   snakes.forEach(s => {
     if (!s.body || s.body.length === 0) return;
     const [hx, hy] = s.body[0];
@@ -560,7 +547,6 @@ function render3DSnakeArena(snakes, orbs, worldW, worldH) {
     ctx.fill();
   });
 
-  // Compute Sector Label (A1 - D4)
   const colChar = ["A", "B", "C", "D"][Math.min(3, Math.floor((camX / worldW) * 4))];
   const rowNum = Math.min(4, Math.floor((camY / worldH) * 4) + 1);
   ctx.fillStyle = "#e5e7eb";
@@ -570,20 +556,42 @@ function render3DSnakeArena(snakes, orbs, worldW, worldH) {
 }
 
 // ============================================================================
-// 6. VILLAGE OF SALEM (MAFIA) UI RENDERER
+// 6. VILLAGE OF SALEM (EXPANDED ROLES + LAST WILL + BOMBER DETONATION)
 // ============================================================================
+document.getElementById("btnSaveWill").onclick = () => {
+  const val = document.getElementById("salemWillInput").value.trim();
+  sendPacket("salemWill", { willText: val });
+  appendChatMessage("Last Will", "Your Last Will has been saved in secret.", "system");
+};
+
+document.getElementById("btnBomberDetonate").onclick = () => {
+  state.salemTarget = "DETONATE";
+  sendPacket("salemAction", { target: "DETONATE" });
+};
+
 function renderSalemState(msg) {
   const panel = document.getElementById("salemPanel");
   panel.classList.remove("hidden");
 
+  const moonIcon = msg.fullMoon ? "🌕 FULL MOON " : "";
   document.getElementById("salemPhaseTitle").textContent =
-    `Day ${msg.day} — ${msg.phase.toUpperCase()} PHASE`;
+    `Day ${msg.day} — ${moonIcon}${msg.phase.toUpperCase()} PHASE`;
   document.getElementById("salemInstruction").textContent = msg.instruction || "";
   document.getElementById("salemReportBanner").textContent = msg.report || "";
 
   const badge = document.getElementById("salemMyRoleBadge");
-  badge.textContent = `Your Role: ${msg.myRole}`;
+  const roleLabel = msg.myRole === "PlagueDoctor" ? "Plague Doctor" : msg.myRole;
+  badge.textContent = `Role: ${roleLabel}${msg.extraStatus ? ` (${msg.extraStatus})` : ""}`;
   badge.className = `salem-role-badge role-${msg.myRole}`;
+
+  const detonateBtn = document.getElementById("btnBomberDetonate");
+  detonateBtn.classList.toggle(
+    "hidden",
+    !(msg.amAlive && msg.phase === "night" && msg.myRole === "Bomber" && msg.plantedCount > 0)
+  );
+  if (msg.plantedCount > 0) {
+    detonateBtn.textContent = `💥 Detonate (${msg.plantedCount})`;
+  }
 
   const skipBtn = document.getElementById("btnSalemSkipVote");
   skipBtn.classList.toggle("hidden", msg.phase !== "voting" || !msg.amAlive);
@@ -609,16 +617,20 @@ function renderSalemState(msg) {
       ? `${msg.votes[p.username]} Vote(s)`
       : "";
 
+    let tagsHtml = "";
+    if (p.hasBomb) tagsHtml += `<span class="mini-tag tag-bomb">💣 Rigged</span>`;
+    if (p.isInfected) tagsHtml += `<span class="mini-tag tag-plague">☣️ Infected</span>`;
+
     card.innerHTML = `
-      <div class="avatar-circle" style="background:${p.color || "#6366f1"};width:34px;height:34px;font-size:14px;">
+      <div class="avatar-circle" style="background:${p.color || "#6366f1"};width:32px;height:32px;font-size:13px;">
         ${p.username.charAt(0).toUpperCase()}
       </div>
-      <div style="font-weight:700;font-size:13px;">${p.username}</div>
+      <div style="font-weight:700;font-size:12px;">${p.username}</div>
       ${roleInfo}
+      <div class="salem-tag-row">${tagsHtml}</div>
       <div class="salem-votes">${voteCount}</div>
     `;
 
-    // Show interactive button during Night (for special roles) or Voting
     if (msg.amAlive && p.alive && msg.canAct) {
       const canTargetSelf = msg.myRole === "Doctor" && msg.phase === "night";
       if (p.username !== state.me.username || canTargetSelf) {
@@ -847,10 +859,8 @@ document.querySelectorAll("#shadowTouchCluster .touch-btn").forEach(btn => {
 });
 
 window.addEventListener("keydown", (e) => {
-  if (document.activeElement === document.getElementById("chatInput") ||
-      document.activeElement === document.getElementById("garticSentenceInput")) {
-    return;
-  }
+  const activeTag = document.activeElement ? document.activeElement.tagName : "";
+  if (activeTag === "INPUT" || activeTag === "TEXTAREA") return;
 
   if (state.mode === "snake") {
     const angleMap = {
